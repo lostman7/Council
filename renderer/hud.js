@@ -1,44 +1,43 @@
-const hud = document.createElement('div');
-hud.id = 'hud';
-
-const metricsGroup = document.createElement('div');
-metricsGroup.className = 'hud-metrics';
-
-const seatSpan = createSpan('Seat: Idle');
-const topicSpan = createSpan('Topic: —');
-const entropySpan = createSpan('Entropy 0.00');
-const leadSpan = createSpan('Lead —');
-const tokenSpan = createSpan('Tokens 0');
-const summarySpan = createSpan('Thinker —');
-const ramSpan = createSpan('RAM 0.0%');
-const gpuSpan = createSpan('GPU n/a');
-const modelsSpan = createSpan('Models: —');
-const updatedSpan = createSpan('Updated —');
-
-metricsGroup.append(
-  seatSpan,
-  topicSpan,
-  entropySpan,
-  leadSpan,
-  tokenSpan,
-  summarySpan,
-  ramSpan,
-  gpuSpan,
-  modelsSpan,
-  updatedSpan
-);
-
-const controlsGroup = document.createElement('div');
-controlsGroup.className = 'hud-controls';
-hud.append(metricsGroup, controlsGroup);
-document.body.appendChild(hud);
-
+const hudContainer = document.getElementById('hud-container');
+const hudToggle = document.getElementById('hud-toggle');
+const hudText = document.getElementById('hud-text');
 const logToggleBtn = document.getElementById('toggleLogs');
 const exportBtn = document.getElementById('exportLog');
 const logPanel = document.getElementById('councilLogs');
 const seatStatusPanel = document.getElementById('seatStatus');
 const logAppender = createLogAppender(logPanel);
 const toast = createToast();
+
+const metricsState = {
+  seat: 'Idle',
+  topic: '—',
+  tokens: 0,
+  summaryAt: null,
+  entropy: 0,
+  lead: '—',
+  ram: '0.0%',
+  gpu: 'n/a',
+  models: '—',
+  updatedAt: null
+};
+
+updateHudText();
+
+if (hudToggle && hudContainer) {
+  const initHudToggle = () => {
+    hudToggle.textContent = hudContainer.classList.contains('collapsed') ? '▲' : '▼';
+    hudToggle.addEventListener('click', () => {
+      hudContainer.classList.toggle('collapsed');
+      hudToggle.textContent = hudContainer.classList.contains('collapsed') ? '▲' : '▼';
+    });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initHudToggle, { once: true });
+  } else {
+    initHudToggle();
+  }
+}
 
 if (logToggleBtn && logPanel) {
   logToggleBtn.addEventListener('click', () => {
@@ -54,35 +53,55 @@ if (exportBtn) {
 
 if (window.CouncilAPI?.on) {
   window.CouncilAPI.on('seat-change', (role) => {
-    seatSpan.textContent = `Seat: ${role}`;
+    metricsState.seat = role || 'Idle';
+    updateHudText();
   });
 
   window.CouncilAPI.on('telemetry-update', ({ stats, pool, metrics, harmony }) => {
     if (metrics) {
-      seatSpan.textContent = `Seat: ${metrics.activeSeat ?? 'Idle'}`;
-      topicSpan.textContent = `Topic: ${metrics.sessionTopic ? truncate(metrics.sessionTopic, 40) : '—'}`;
-      tokenSpan.textContent = `Tokens ${metrics.contextTokens ?? 0}`;
-      summarySpan.textContent = `Thinker ${formatTimestamp(metrics.lastSummaryAt)}`;
+      metricsState.seat = metrics.activeSeat ?? metricsState.seat;
+      metricsState.topic = metrics.sessionTopic ? truncate(metrics.sessionTopic, 40) : '—';
+      metricsState.tokens = metrics.contextTokens ?? metricsState.tokens;
+      metricsState.summaryAt = metrics.lastSummaryAt ?? metricsState.summaryAt;
     }
 
     if (stats) {
       const ramValue = stats.ramUsage ?? '0.0';
       const gpuValue = stats.gpuUsage ?? 'n/a';
-      ramSpan.textContent = `RAM ${ramValue}${typeof ramValue === 'string' && ramValue.endsWith('%') ? '' : '%'}`;
-      gpuSpan.textContent = `GPU ${gpuValue === 'n/a' ? 'n/a' : `${gpuValue}%`}`;
-      updatedSpan.textContent = `Updated ${formatTimestamp(stats.timestamp)}`;
+      metricsState.ram = typeof ramValue === 'string' && ramValue.endsWith('%') ? ramValue : `${ramValue}%`;
+      metricsState.gpu = gpuValue === 'n/a' ? 'n/a' : `${gpuValue}%`;
+      metricsState.updatedAt = stats.timestamp ?? metricsState.updatedAt;
     }
 
-    modelsSpan.textContent = `Models: ${Array.isArray(pool) && pool.length ? pool.join(', ') : '—'}`;
+    if (Array.isArray(pool) && pool.length) {
+      metricsState.models = pool.join(', ');
+    } else {
+      metricsState.models = '—';
+    }
 
     if (harmony) {
       const entropyValue = typeof harmony.entropy === 'number' ? harmony.entropy : 0;
-      entropySpan.textContent = `Entropy ${entropyValue.toFixed(2)}`;
+      metricsState.entropy = entropyValue;
       const leadEntry = Object.entries(harmony.weights || {})
         .sort((a, b) => b[1] - a[1])
         .map(([name]) => name)[0];
-      leadSpan.textContent = `Lead ${leadEntry || '—'}`;
+      metricsState.lead = leadEntry || '—';
       updateHarmonyBackdrop(entropyValue);
+    }
+
+    updateHudText();
+  });
+
+  window.CouncilAPI.on('new-seed', (seed) => {
+    if (seed) {
+      logAppender(`New seed issued: ${seed}`);
+    }
+  });
+
+  window.CouncilAPI.on('system-log', (message) => {
+    if (message) {
+      logAppender(`System: ${message}`);
+      showToast(message);
     }
   });
 }
@@ -100,26 +119,6 @@ if (window.CouncilAPI?.onSeatUpdate && seatStatusPanel) {
       })
       .join('');
   });
-}
-
-if (window.CouncilAPI?.on) {
-  window.CouncilAPI.on('new-seed', (seed) => {
-    if (seed) {
-      logAppender(`New seed issued: ${seed}`);
-    }
-  });
-
-  window.CouncilAPI.on('system-log', (message) => {
-    if (message) {
-      showToast(message);
-    }
-  });
-}
-
-function createSpan(text) {
-  const span = document.createElement('span');
-  span.textContent = text;
-  return span;
 }
 
 function createLogAppender(panel) {
@@ -181,4 +180,21 @@ function updateHarmonyBackdrop(entropy) {
   }
 
   body.classList.add(target);
+}
+
+function updateHudText() {
+  if (!hudText) return;
+  const parts = [
+    `Seat: ${metricsState.seat}`,
+    `Topic: ${metricsState.topic}`,
+    `Entropy ${metricsState.entropy.toFixed(2)}`,
+    `Lead ${metricsState.lead}`,
+    `Tokens ${metricsState.tokens}`,
+    `Thinker ${formatTimestamp(metricsState.summaryAt)}`,
+    `RAM ${metricsState.ram}`,
+    `GPU ${metricsState.gpu}`,
+    `Models: ${metricsState.models}`,
+    `Updated ${formatTimestamp(metricsState.updatedAt)}`
+  ];
+  hudText.textContent = parts.join(' — ');
 }

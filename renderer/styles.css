@@ -249,46 +249,13 @@ body {
 }
 
 /* --- HUD + Log Drawer --- */
-#hud {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: #0f1116;
-  color: #8fffd1;
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.85em;
-  padding: 6px 14px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  border-top: 1px solid #333;
-  opacity: 0.92;
-  z-index: 120;
-}
-
-#hud span {
-  white-space: nowrap;
-}
-
-.hud-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.hud-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 #hudButtons {
-  position: absolute;
-  bottom: 190px;
+  position: fixed;
+  bottom: 80px;
   right: 20px;
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   z-index: 140;
 }
@@ -305,6 +272,59 @@ body {
 
 #hudButtons button:hover {
   background: #2e2e2e;
+}
+
+#hud-container {
+  position: fixed;
+  bottom: 12px;
+  right: 20px;
+  left: auto;
+  background: #0e0e16;
+  border: 1px solid #222;
+  border-radius: 4px;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  z-index: 130;
+  font-family: 'IBM Plex Mono', monospace;
+  padding: 8px 10px 6px 8px;
+  color: #88ff88;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#hud-container.collapsed {
+  transform: translateY(90%);
+  opacity: 0.6;
+}
+
+#hud-toggle {
+  position: absolute;
+  top: -14px;
+  right: 4px;
+  background: #111;
+  color: #ccc;
+  border: 1px solid #333;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+#hud-toggle:hover {
+  color: #fff;
+  border-color: #555;
+}
+
+#hud-panel {
+  display: flex;
+  flex: 1;
+  padding-right: 8px;
+}
+
+#hud-text {
+  font-size: 0.75rem;
+  line-height: 1.4;
 }
 
 #councilLogs {
