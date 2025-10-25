@@ -1,6 +1,7 @@
 import { spawnSeat } from './dispatcher.js';
 import { loadBubble, saveBubble } from '../memory/bubbles.js';
 import { initRamdisk } from './ramdisk.js';
+import { searchDocs } from '../memory/vectorCache.js';
 
 let activeSeat = 'Physicist';
 let throneContext = [];
@@ -21,7 +22,10 @@ export async function handleSeed(msg, win) {
   }
 
   const bubble = loadBubble(activeSeat);
-  const prompt = buildPrompt(msg, bubble);
+  const docs = await searchDocs(msg);
+  const rag = docs.length ? docs.join('\n---\n') : 'No relevant Flowfield context available.';
+
+  const prompt = buildPrompt(msg, bubble, rag);
 
   const reply = await spawnSeat(activeSeat, prompt);
   throneContext.push({ role: activeSeat, content: reply });
@@ -39,7 +43,7 @@ function decideSeat(msg) {
   return 'Physicist';
 }
 
-function buildPrompt(msg, bubble) {
-  const context = bubble?.slice(-3).join('\n') ?? '';
-  return `Context:\n${context}\nUser:${msg}`;
+function buildPrompt(msg, bubble, rag) {
+  const memory = bubble?.slice(-5).join('\n') ?? '';
+  return `Flowfield Context:\n${rag}\n\nRecent Seat Memory:\n${memory}\n\nUser:${msg}`;
 }

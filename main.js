@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import os from 'os';
 import * as throne from './core/throne.js';
+import { initVectorCache } from './memory/vectorCache.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,6 +31,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   createWindow();
   await throne.initThrone(win);
+  await initVectorCache('./flowfield_docs');
 });
 
 app.on('window-all-closed', () => {
