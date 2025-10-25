@@ -7,7 +7,12 @@ import { trace, traceLog } from './trace.js';
 import { loadPersona } from './personas.js';
 import { loadSeatRegistry, saveSeatPreferences, DEFAULT_MODELS } from './seatRegistry.js';
 import { getConfig, saveConfig } from './config.js';
-import { cooldown, loadVectorConfig, Thinker as ThinkerLock } from './vectorOps.js';
+import {
+  cooldown,
+  loadVectorConfig,
+  Thinker as ThinkerLock,
+  setThinkerEmbedding
+} from './vectorOps.js';
 
 const FALLBACK_MODEL = 'llama3.2:3b';
 
@@ -422,13 +427,12 @@ export async function spawnSeat(
 
   if (isThinker) {
     trace('Seat', 'spawn', { role, model: selectedModel, intent: intent || null, mode: 'embedding' });
-    if (ThinkerLock) {
-      ThinkerLock.model = selectedModel;
-    }
+    const appliedModel = await setThinkerEmbedding(selectedModel);
 
     let text = '';
+    let vector = null;
     try {
-      await ThinkerLock?.run?.(prompt || persona?.seed || '');
+      vector = await ThinkerLock?.run?.(prompt || persona?.seed || '');
     } catch (err) {
       const message = err?.message || String(err);
       trace('Seat', 'thinker.embed.error', { role, err: message });
@@ -450,7 +454,7 @@ export async function spawnSeat(
     }
 
     trace('Seat', 'reply', { role, bytes: text.length });
-    return { text, persona, model: selectedModel };
+    return { text, persona, model: appliedModel, vector };
   }
 
   const systemParts = [systemPrompt || `You are the ${role} of the Council.`];

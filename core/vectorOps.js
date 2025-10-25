@@ -3,11 +3,20 @@ import path from 'path';
 import { getConfig, saveConfig } from './config.js';
 import { traceLog } from './trace.js';
 
+const EMBEDDING_ALLOWLIST = [
+  'qwen3-embedding:0.6b',
+  'mxbai-embed-large:latest'
+];
+
 const MEMORY_DIR = path.join(process.cwd(), 'memory');
 export const VECTOR_CACHE_PATH = path.join(MEMORY_DIR, 'vectorCache.json');
 export const DEFAULT_EMBED_MODEL = 'qwen3-embedding:0.6b';
-export const FALLBACK_EMBED_MODEL = 'mxbai-embed-large';
+export const FALLBACK_EMBED_MODEL = 'mxbai-embed-large:latest';
 const VECTOR_CACHE_VERSION = 'v0.4.7';
+
+let availableEmbeddings = [];
+let activeEmbeddingModel = DEFAULT_EMBED_MODEL;
+let embeddingsInitialised = false;
 
 const DEFAULT_CACHE = () => ({
   version: VECTOR_CACHE_VERSION,
@@ -23,6 +32,69 @@ const DEFAULT_VECTOR_CONFIG = {
   thinkerActive: true,
   cachePath: VECTOR_CACHE_PATH
 };
+
+function sanitiseEmbeddingModel(model) {
+  const trimmed = typeof model === 'string' ? model.trim() : '';
+  if (trimmed && EMBEDDING_ALLOWLIST.includes(trimmed)) {
+    return trimmed;
+  }
+  if (availableEmbeddings.includes(trimmed)) {
+    return trimmed;
+  }
+  if (availableEmbeddings.length) {
+    return availableEmbeddings[0];
+  }
+  return EMBEDDING_ALLOWLIST[0] || DEFAULT_EMBED_MODEL;
+}
+
+export async function initVectorOps() {
+  if (embeddingsInitialised) {
+    return { models: [...availableEmbeddings], active: activeEmbeddingModel };
+  }
+
+  try {
+    const response = await fetch('http://localhost:11434/api/tags');
+    const payload = await response.json();
+    const discovered = Array.isArray(payload?.models)
+      ? payload.models.map((model) => model?.name).filter(Boolean)
+      : [];
+    availableEmbeddings = EMBEDDING_ALLOWLIST.filter((name) =>
+      discovered.includes(name)
+    );
+  } catch (err) {
+    console.warn('[VectorOps] Unable to query Ollama for embeddings:', err?.message || err);
+    availableEmbeddings = [];
+  }
+
+  if (!availableEmbeddings.length) {
+    availableEmbeddings = [...EMBEDDING_ALLOWLIST];
+    console.warn('[Thinker] No embedding models detected; defaulting to allowlist.');
+  }
+
+  const config = await getConfig();
+  activeEmbeddingModel = sanitiseEmbeddingModel(config.thinkerEmbedModel);
+  await saveConfig({ thinkerEmbedModel: activeEmbeddingModel });
+  embeddingsInitialised = true;
+  return { models: [...availableEmbeddings], active: activeEmbeddingModel };
+}
+
+export function getEmbeddingModels() {
+  return [...availableEmbeddings];
+}
+
+export function getThinkerEmbedding() {
+  return activeEmbeddingModel;
+}
+
+export async function setThinkerEmbedding(model) {
+  await initVectorOps();
+  const next = sanitiseEmbeddingModel(model);
+  if (next !== activeEmbeddingModel) {
+    activeEmbeddingModel = next;
+    await saveConfig({ thinkerEmbedModel: activeEmbeddingModel });
+  }
+  return activeEmbeddingModel;
+}
 
 let cacheData = null;
 let cacheLoaded = false;
@@ -187,6 +259,9 @@ export async function embedText(text, model = DEFAULT_EMBED_MODEL) {
     return [];
   }
 
+  await initVectorOps();
+  const safeModel = sanitiseEmbeddingModel(model || activeEmbeddingModel);
+
   const { data } = await loadCacheInternal();
   const existing = findCachedVector(trimmed);
   if (existing && Array.isArray(existing.vector) && existing.vector.length) {
@@ -194,22 +269,22 @@ export async function embedText(text, model = DEFAULT_EMBED_MODEL) {
   }
 
   try {
-    const vector = await requestEmbedding(model, trimmed);
+    const vector = await requestEmbedding(safeModel, trimmed);
     cacheData.vectors.push({
       id: Date.now(),
       text: trimmed,
-      model,
+      model: safeModel,
       t: new Date().toISOString(),
       hash: Buffer.from(trimmed).toString('base64').slice(0, 24),
       vector
     });
     cacheDirty = true;
     await writeVectorCache();
-    traceLog(`[VectorOps] Embedded "${trimmed.slice(0, 24)}..." → ${model}`);
+    traceLog(`[VectorOps] Embedded "${trimmed.slice(0, 24)}..." → ${safeModel}`);
     return vector;
   } catch (err) {
     traceLog(`[VectorOps] Primary embed failed → ${err.message}`);
-    if (model !== FALLBACK_EMBED_MODEL) {
+    if (safeModel !== FALLBACK_EMBED_MODEL) {
       return embedText(trimmed, FALLBACK_EMBED_MODEL);
     }
     throw err;
@@ -254,11 +329,11 @@ export async function searchEmbeddings(query, limit = 5) {
 }
 
 export const Thinker = {
-  model: DEFAULT_EMBED_MODEL,
   active: true,
   async run(input) {
-    traceLog(`[Thinker] Lock active → ${this.model}`);
-    return embedText(input, this.model);
+    const model = await setThinkerEmbedding(activeEmbeddingModel);
+    traceLog(`[Thinker] Lock active → ${model}`);
+    return embedText(input, model);
   },
   async recall(query) {
     const matches = await searchEmbeddings(query);
@@ -313,4 +388,5 @@ export function displayStatus(message, color = 'cyan') {
 export async function ensureVectorOpsReady() {
   await repairVectorCache();
   await loadVectorConfig();
+  await initVectorOps();
 }
