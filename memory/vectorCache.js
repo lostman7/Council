@@ -1,11 +1,35 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { ramPath } from '../core/ramdisk.js';
+import { EMBEDDING_CACHE_FILE, logDispatcherError } from '../core/dispatcher.js';
 
 const storeFile = path.join(ramPath, 'vector_store.json');
 let vectorStore = [];
 let docsRoot = path.resolve('./flowfield_docs');
 const SUPPORTED_EXTENSIONS = new Set(['.txt', '.md', '.pdf']);
+const EMBED_CANDIDATES = ['qwen3-embedding:0.6b', 'mxbai-embed-large'];
+
+let embeddingCache = {};
+
+function loadEmbeddingCache() {
+  try {
+    const payload = fs.readJsonSync(EMBEDDING_CACHE_FILE);
+    embeddingCache = typeof payload === 'object' && payload ? payload : {};
+  } catch (err) {
+    embeddingCache = {};
+    console.warn('[VectorCache] Unable to read embedding cache:', err.message);
+  }
+}
+
+async function persistEmbeddingCache() {
+  try {
+    await fs.outputJson(EMBEDDING_CACHE_FILE, embeddingCache, { spaces: 2 });
+  } catch (err) {
+    console.warn('[VectorCache] Failed to write embedding cache:', err.message);
+  }
+}
+
+loadEmbeddingCache();
 
 export async function initVectorCache(docsPath = './flowfield_docs') {
   docsRoot = path.resolve(docsPath);
@@ -80,23 +104,38 @@ async function loadPdfParser() {
 }
 
 async function embedText(text) {
-  try {
-    const res = await fetch('http://localhost:11434/api/embeddings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'qwen3-embedding:0.6b', input: text })
-    });
-
-    if (!res.ok) {
-      throw new Error(`Embedding request failed with status ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data.embedding || [];
-  } catch (err) {
-    console.error('Embedding error:', err);
-    return [];
+  const key = text;
+  if (embeddingCache[key]) {
+    return embeddingCache[key];
   }
+
+  for (const model of EMBED_CANDIDATES) {
+    try {
+      const res = await fetch('http://localhost:11434/api/embeddings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, input: text })
+      });
+
+      if (!res.ok) {
+        throw new Error(`Status ${res.status}`);
+      }
+
+      const data = await res.json();
+      const embedding = Array.isArray(data?.embedding) ? data.embedding : [];
+      if (embedding.length) {
+        embeddingCache[key] = embedding;
+        await persistEmbeddingCache();
+        return embedding;
+      }
+    } catch (err) {
+      console.warn(`[Embedding] ${model} failed → ${err.message}`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  logDispatcherError('Embedding failure', { sample: text.slice(0, 120) });
+  return [];
 }
 
 export async function searchDocs(query, topK = 3) {

@@ -2,9 +2,30 @@
 // -------------------------------
 // Defines the Council seats, their models, and live update utilities.
 
-import { callModel } from './dispatcher.js';
+import fs from 'fs-extra';
+import path from 'path';
+import { callModel, listOllamaModels, DEFAULT_CLOUD_BLACKLIST } from './dispatcher.js';
 import { loadPersona } from './personas.js';
 import { loadSeatRegistry, saveSeatPreferences, DEFAULT_MODELS } from './seatRegistry.js';
+
+const CONFIG_BLACKLIST_PATH = path.resolve('config/blacklist.json');
+const FALLBACK_MODEL = 'llama3.2:3b';
+
+const ensureBlacklistFile = (() => {
+  let initialised = false;
+  return () => {
+    if (initialised) return;
+    initialised = true;
+    try {
+      fs.ensureDirSync(path.dirname(CONFIG_BLACKLIST_PATH));
+      if (!fs.existsSync(CONFIG_BLACKLIST_PATH)) {
+        fs.writeJsonSync(CONFIG_BLACKLIST_PATH, DEFAULT_CLOUD_BLACKLIST, { spaces: 2 });
+      }
+    } catch (err) {
+      console.warn('[Council Seats] Unable to prepare blacklist file:', err.message);
+    }
+  };
+})();
 
 const MODEL_POOLS = {
   Physicist: ['deepseek-r1:1.5b', 'sequoia-1b', 'qwen3:1.7b'],
@@ -175,7 +196,11 @@ export async function spawnSeat(role, prompt, { modelOverride, messages, systemP
   }
 
   const persona = loadPersonaSafe(role);
-  const selectedModel = selectModelForSeat(role, config, modelOverride);
+  let selectedModel = selectModelForSeat(role, config, modelOverride);
+  selectedModel = await ensureModelChoice(role, selectedModel);
+  if (config) {
+    config.lastModel = selectedModel;
+  }
   const systemParts = [systemPrompt || `You are the ${role} of the Council.`];
 
   if (persona?.tone) {
@@ -284,4 +309,36 @@ function selectModelForSeat(role, config, override) {
 
 export function pickModelForSeat(role) {
   return takeNextModelFromPool(role, seatConfigs[role] || {});
+}
+
+function loadBlacklist() {
+  ensureBlacklistFile();
+  try {
+    const payload = fs.readJsonSync(CONFIG_BLACKLIST_PATH);
+    return Array.isArray(payload) ? payload : DEFAULT_CLOUD_BLACKLIST;
+  } catch (err) {
+    console.warn('[Council Seats] Failed to read blacklist:', err.message);
+    return DEFAULT_CLOUD_BLACKLIST;
+  }
+}
+
+async function ensureModelChoice(role, candidate) {
+  const blacklist = loadBlacklist();
+  let selected = candidate || DEFAULT_MODELS[role] || FALLBACK_MODEL;
+
+  if (blacklist.some((blocked) => selected.includes(blocked))) {
+    console.warn(`[COUNCIL] Seat '${role}' model '${selected}' is blacklisted → using fallback ${FALLBACK_MODEL}`);
+    selected = DEFAULT_MODELS[role] || FALLBACK_MODEL;
+  }
+
+  const available = await listOllamaModels();
+  if (available.length && !available.includes(selected)) {
+    const fallback = available.includes(FALLBACK_MODEL)
+      ? FALLBACK_MODEL
+      : available[0] || FALLBACK_MODEL;
+    console.warn(`[COUNCIL] Seat '${role}' model '${selected}' unavailable → ${fallback}`);
+    selected = fallback;
+  }
+
+  return selected;
 }
