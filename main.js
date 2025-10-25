@@ -9,6 +9,12 @@ import { summarize } from './core/thinker.js';
 import { initVectorCache } from './memory/vectorCache.js';
 import { getStats } from './core/telemetry.js';
 import { refreshPool } from './core/pool.js';
+import {
+  initArchive,
+  latestSummary,
+  listSessions,
+  loadSession
+} from './core/continuum.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,6 +41,8 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   createWindow();
+  await initArchive();
+  const previousEchoes = latestSummary();
   await throne.initThrone(win);
   await initVectorCache('./flowfield_docs');
   scheduleOpticalThinker();
@@ -44,6 +52,12 @@ app.whenReady().then(async () => {
     win.webContents.once('did-finish-load', () => {
       const seatMap = seats.getSeatMap();
       win.webContents.send('init-seats', seatMap);
+      if (previousEchoes) {
+        win.webContents.send(
+          'council-response',
+          `Throne: Recalling previous echoes...\n${previousEchoes}`
+        );
+      }
     });
   }
 });
@@ -83,6 +97,16 @@ ipcMain.on('update-seat', (_, { name, model }) => {
     const stamp = new Date().toLocaleTimeString();
     win.webContents.send('system-log', `[${stamp}] Seat ${name} model set to ${model}`);
   }
+});
+
+ipcMain.on('list-archive', (event) => {
+  const sessions = listSessions();
+  event.sender.send('archive-list', sessions);
+});
+
+ipcMain.on('load-archive', (event, name) => {
+  const content = loadSession(name);
+  event.sender.send('archive-content', content);
 });
 
 const THINKER_INTERVAL_MS = 15 * 60 * 1000;

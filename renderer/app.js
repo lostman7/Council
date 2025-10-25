@@ -2,6 +2,16 @@ const sendBtn = document.getElementById('sendBtn');
 const startSessionBtn = document.getElementById('startSessionBtn');
 const seedInput = document.getElementById('seedInput');
 
+const recallBtn = document.createElement('button');
+recallBtn.id = 'recallSessionBtn';
+recallBtn.textContent = 'Recall Session';
+recallBtn.onclick = () => {
+  if (window.CouncilAPI?.send) {
+    window.CouncilAPI.send('list-archive');
+  }
+};
+document.body.prepend(recallBtn);
+
 const optionsBtn = document.getElementById('optionsBtn');
 const councilDot = document.getElementById('councilDot');
 const seatStatus = document.getElementById('seatStatus');
@@ -34,6 +44,22 @@ if (window.CouncilAPI?.on) {
   window.CouncilAPI.on('seat-change', (role) => {
     seatStatus.textContent = `Active Seat: ${role}`;
     setCouncilDot(role === 'Idle' ? 'idle' : 'active');
+  });
+
+  window.CouncilAPI.on('archive-list', (sessions) => {
+    if (!Array.isArray(sessions) || !sessions.length) {
+      window.alert('No archived sessions yet.');
+      return;
+    }
+    const selection = window.prompt('Choose session to recall:\n' + sessions.join('\n'));
+    if (selection && window.CouncilAPI?.send) {
+      window.CouncilAPI.send('load-archive', selection);
+    }
+  });
+
+  window.CouncilAPI.on('archive-content', (text) => {
+    const snippet = typeof text === 'string' ? text.slice(-1000) : '(invalid session data)';
+    window.alert(`Recalled Memory:\n${snippet}`);
   });
 }
 

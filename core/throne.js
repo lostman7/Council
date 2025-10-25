@@ -4,6 +4,7 @@ import { loadBubble, saveBubble, mergeBubble } from '../memory/bubbles.js';
 import { initRamdisk } from './ramdisk.js';
 import { searchDocs } from '../memory/vectorCache.js';
 import { summarize } from './thinker.js';
+import { saveSession } from './continuum.js';
 
 export const THRONE_LOG_LIMIT = 200;
 const SUMMARY_INTERVAL = 3;
@@ -223,6 +224,11 @@ async function runCouncilLoop(win) {
       const summary = await summarize('Throne', turnLog);
       await recordSummary(summary, { win, broadcast: true });
     }
+
+    if (iteration % 5 === 0) {
+      const allTranscripts = getAllBubbles();
+      await saveSession(sessionTopic || 'Untitled Session', allTranscripts);
+    }
   } catch (err) {
     console.error('Council loop error:', err);
     if (win) {
@@ -234,6 +240,19 @@ async function runCouncilLoop(win) {
       scheduleCouncilLoop(win, SESSION_INTERVAL_MS);
     }
   }
+}
+
+function getAllBubbles() {
+  const seatNames = getSeats();
+  const transcripts = [];
+  for (const seatName of seatNames) {
+    const entries = loadBubble(seatName);
+    if (!entries.length) continue;
+    transcripts.push(`# ${seatName}`);
+    transcripts.push(...entries);
+    transcripts.push('');
+  }
+  return transcripts;
 }
 
 function buildPrompt({ topic, baton, memory, rag, role, iteration: turn }) {
