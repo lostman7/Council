@@ -7,13 +7,15 @@ const MEMORY_DIR = path.join(process.cwd(), 'memory');
 export const VECTOR_CACHE_PATH = path.join(MEMORY_DIR, 'vectorCache.json');
 export const DEFAULT_EMBED_MODEL = 'qwen3-embedding:0.6b';
 export const FALLBACK_EMBED_MODEL = 'mxbai-embed-large';
+const VECTOR_CACHE_VERSION = 'v0.4.7';
 
-const DEFAULT_CACHE = {
-  version: 'v0.4.4',
+const DEFAULT_CACHE = () => ({
+  version: VECTOR_CACHE_VERSION,
   created: new Date().toISOString(),
-  entries: [],
+  model: DEFAULT_EMBED_MODEL,
+  vectors: [],
   seeded: ['resonance', 'toroidal', 'memory cage', 'flowfield', 'collapse engine']
-};
+});
 
 const DEFAULT_VECTOR_CONFIG = {
   cooldownDelay: 10,
@@ -24,40 +26,103 @@ const DEFAULT_VECTOR_CONFIG = {
 
 let cacheData = null;
 let cacheLoaded = false;
+let cacheDirty = false;
 
-async function ensureVectorCacheFile() {
-  await fs.ensureDir(MEMORY_DIR);
-  const exists = await fs.pathExists(VECTOR_CACHE_PATH);
-  if (!exists) {
-    await fs.writeJson(VECTOR_CACHE_PATH, DEFAULT_CACHE, { spaces: 2 });
-    traceLog(`[VectorCache] Initialized → ${VECTOR_CACHE_PATH}`);
+function normaliseCacheShape(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return { value: DEFAULT_CACHE(), rewritten: true };
   }
+
+  const next = { ...raw };
+  let rewritten = false;
+
+  if (!Array.isArray(next.vectors)) {
+    if (Array.isArray(next.entries)) {
+      next.vectors = next.entries.map((entry) => ({
+        id: entry.id || Date.now(),
+        text: entry.text,
+        model: entry.model || DEFAULT_EMBED_MODEL,
+        t: entry.date || new Date().toISOString(),
+        vector: entry.embedding
+      }));
+      delete next.entries;
+      rewritten = true;
+    } else {
+      next.vectors = [];
+      rewritten = true;
+    }
+  } else {
+    next.vectors = next.vectors.filter((entry) =>
+      entry && Array.isArray(entry.vector)
+    );
+  }
+
+  if (!next.version || next.version !== VECTOR_CACHE_VERSION) {
+    next.version = VECTOR_CACHE_VERSION;
+    rewritten = true;
+  }
+
+  if (!next.model) {
+    next.model = DEFAULT_EMBED_MODEL;
+    rewritten = true;
+  }
+
+  if (!Array.isArray(next.seeded)) {
+    next.seeded = DEFAULT_CACHE().seeded;
+    rewritten = true;
+  }
+
+  return { value: next, rewritten };
 }
 
-async function readVectorCache() {
-  if (cacheLoaded) {
-    return cacheData;
+async function loadCacheInternal(forceReload = false) {
+  if (cacheLoaded && !forceReload) {
+    return { data: cacheData, rewritten: false };
   }
-  await ensureVectorCacheFile();
+
+  await fs.ensureDir(MEMORY_DIR);
+
+  let raw;
+  let rewritten = false;
   try {
-    cacheData = await fs.readJson(VECTOR_CACHE_PATH);
+    raw = await fs.readJson(VECTOR_CACHE_PATH);
   } catch (err) {
-    traceLog(`[VectorCache] Failed to read cache, rebuilding: ${err.message}`);
-    cacheData = { ...DEFAULT_CACHE, created: new Date().toISOString() };
+    raw = DEFAULT_CACHE();
+    rewritten = true;
+  }
+
+  const { value, rewritten: normalised } = normaliseCacheShape(raw);
+  cacheData = value;
+  cacheLoaded = true;
+  cacheDirty = false;
+  rewritten = rewritten || normalised;
+
+  if (rewritten) {
     await fs.writeJson(VECTOR_CACHE_PATH, cacheData, { spaces: 2 });
   }
-  cacheLoaded = true;
-  return cacheData;
+
+  return { data: cacheData, rewritten };
 }
 
 async function writeVectorCache() {
-  if (!cacheLoaded || !cacheData) {
+  if (!cacheLoaded || !cacheDirty) {
     return;
   }
   await fs.writeJson(VECTOR_CACHE_PATH, cacheData, { spaces: 2 });
+  cacheDirty = false;
 }
 
-function normalizeEmbeddingPayload(payload) {
+export async function repairVectorCache() {
+  const { rewritten } = await loadCacheInternal(true);
+  traceLog(
+    rewritten
+      ? `[Repair] VectorCache rebuilt with ${DEFAULT_EMBED_MODEL}`
+      : '[Repair] VectorCache verified OK'
+  );
+  return rewritten;
+}
+
+function normaliseEmbeddingPayload(payload) {
   if (!payload) return [];
   if (Array.isArray(payload.embedding)) return payload.embedding;
   if (Array.isArray(payload.data) && payload.data[0]?.embedding) {
@@ -68,21 +133,52 @@ function normalizeEmbeddingPayload(payload) {
 }
 
 async function requestEmbedding(model, text) {
-  const res = await fetch('http://localhost:11434/api/embeddings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, input: text })
-  });
-  if (!res.ok) {
-    throw new Error(`Embedding failed: ${res.status} ${res.statusText}`);
+  const payload = { model, input: text };
+  const endpoints = ['/api/embed', '/api/embeddings'];
+  let lastError = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(`http://localhost:11434${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30_000)
+      });
+
+      if (!response.ok) {
+        if (endpoint === '/api/embed' && response.status === 404) {
+          lastError = new Error('Embed endpoint unavailable, falling back.');
+          continue;
+        }
+        const textResponse = await response.text();
+        lastError = new Error(
+          `Embedding failed ${response.status}: ${textResponse.slice(0, 200)}`
+        );
+        continue;
+      }
+
+      const json = await response.json();
+      const vector = normaliseEmbeddingPayload(json);
+      if (!Array.isArray(vector) || !vector.length) {
+        lastError = new Error('Empty embedding returned from endpoint');
+        continue;
+      }
+      return vector;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
   }
-  const json = await res.json();
-  return normalizeEmbeddingPayload(json);
+
+  throw lastError || new Error('Unable to obtain embedding');
 }
 
-function findCachedEmbedding(text) {
-  if (!cacheData || !Array.isArray(cacheData.entries)) return null;
-  return cacheData.entries.find((entry) => entry.text === text) || null;
+function findCachedVector(text) {
+  if (!cacheData || !Array.isArray(cacheData.vectors)) return null;
+  const trimmed = text.trim();
+  return (
+    cacheData.vectors.find((entry) => entry.text === trimmed) || null
+  );
 }
 
 export async function embedText(text, model = DEFAULT_EMBED_MODEL) {
@@ -90,27 +186,29 @@ export async function embedText(text, model = DEFAULT_EMBED_MODEL) {
   if (!trimmed) {
     return [];
   }
-  const cache = await readVectorCache();
-  const existing = findCachedEmbedding(trimmed);
-  if (existing && Array.isArray(existing.embedding) && existing.embedding.length) {
-    return existing.embedding;
+
+  const { data } = await loadCacheInternal();
+  const existing = findCachedVector(trimmed);
+  if (existing && Array.isArray(existing.vector) && existing.vector.length) {
+    return existing.vector;
   }
+
   try {
-    const embedding = await requestEmbedding(model, trimmed);
-    if (!Array.isArray(embedding) || !embedding.length) {
-      throw new Error('Empty embedding returned');
-    }
-    cache.entries.push({
+    const vector = await requestEmbedding(model, trimmed);
+    cacheData.vectors.push({
+      id: Date.now(),
       text: trimmed,
-      embedding,
       model,
-      date: new Date().toISOString()
+      t: new Date().toISOString(),
+      hash: Buffer.from(trimmed).toString('base64').slice(0, 24),
+      vector
     });
+    cacheDirty = true;
     await writeVectorCache();
-    traceLog(`[VectorCache] Embedded "${trimmed.slice(0, 24)}..." → ${model}`);
-    return embedding;
+    traceLog(`[VectorOps] Embedded "${trimmed.slice(0, 24)}..." → ${model}`);
+    return vector;
   } catch (err) {
-    traceLog(`[VectorCache] Primary embed failed → ${err.message}`);
+    traceLog(`[VectorOps] Primary embed failed → ${err.message}`);
     if (model !== FALLBACK_EMBED_MODEL) {
       return embedText(trimmed, FALLBACK_EMBED_MODEL);
     }
@@ -119,9 +217,13 @@ export async function embedText(text, model = DEFAULT_EMBED_MODEL) {
 }
 
 function cosineSimilarity(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || !a.length || !b.length) {
+    return 0;
+  }
   const dot = a.reduce((sum, value, index) => sum + value * (b[index] || 0), 0);
-  const mag = (vec) => Math.sqrt(vec.reduce((sum, value) => sum + value * value, 0));
-  const denom = mag(a) * mag(b);
+  const magnitude = (vec) =>
+    Math.sqrt(vec.reduce((sum, value) => sum + value * value, 0));
+  const denom = magnitude(a) * magnitude(b);
   return denom ? dot / denom : 0;
 }
 
@@ -130,38 +232,44 @@ export async function searchEmbeddings(query, limit = 5) {
   if (!trimmed) {
     return [];
   }
-  const cache = await readVectorCache();
-  if (!cache.entries.length) {
+
+  const { data } = await loadCacheInternal();
+  if (!Array.isArray(data.vectors) || !data.vectors.length) {
     return [];
   }
+
   const queryVector = await embedText(trimmed);
-  const scored = cache.entries
+  if (!queryVector.length) {
+    return [];
+  }
+
+  return data.vectors
     .map((entry) => ({
       ...entry,
-      score: cosineSimilarity(queryVector, entry.embedding)
+      score: cosineSimilarity(queryVector, entry.vector)
     }))
     .filter((entry) => Number.isFinite(entry.score))
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(1, limit));
-  return scored;
 }
 
-export const thinkerSeat = {
-  name: 'Thinker',
-  role: 'embedding',
+export const Thinker = {
   model: DEFAULT_EMBED_MODEL,
   active: true,
-  async process(input) {
-    const text = String(input ?? '');
-    traceLog(`[Thinker] Processing embedding for "${text.slice(0, 48)}..."`);
-    return embedText(text);
+  async run(input) {
+    traceLog(`[Thinker] Lock active → ${this.model}`);
+    return embedText(input, this.model);
   },
   async recall(query) {
     const matches = await searchEmbeddings(query);
-    traceLog(`[Thinker] Found ${matches.length} entries for "${String(query).slice(0, 48)}..."`);
+    traceLog(
+      `[Thinker] Found ${matches.length} entries for "${String(query).slice(0, 48)}..."`
+    );
     return matches.map((match) => match.text).join('\n');
   }
 };
+
+export const thinkerSeat = Thinker;
 
 export async function cooldown(ms = 10_000) {
   const delay = Math.max(0, Number(ms) || 0);
@@ -169,7 +277,7 @@ export async function cooldown(ms = 10_000) {
     return;
   }
   const seconds = Math.ceil(delay / 1000);
-  traceLog(`[Cooldown] Waiting ${seconds}s before next model load`);
+  traceLog(`[Cooldown] Cooling for ${seconds}s before next model load`);
   for (let remaining = seconds; remaining > 0; remaining -= 1) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -203,6 +311,6 @@ export function displayStatus(message, color = 'cyan') {
 }
 
 export async function ensureVectorOpsReady() {
-  await readVectorCache();
+  await repairVectorCache();
   await loadVectorConfig();
 }
