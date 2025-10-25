@@ -1,4 +1,5 @@
 import { getSeats } from './seats.js';
+import { applySynapticDrift } from './synaptic_drift.js';
 
 const DEFAULT_MOODS = {
   Physicist: 'Analytical',
@@ -17,7 +18,7 @@ const harmonicState = {
   moods: { ...DEFAULT_MOODS }
 };
 
-export function initHarmony(initialState) {
+export async function initHarmony(initialState) {
   if (initialState) {
     applyState(initialState);
   } else if (globalThis.__councilHarmony__) {
@@ -29,6 +30,18 @@ export function initHarmony(initialState) {
   }
 
   alignSeats();
+
+  try {
+    const drifted = await applySynapticDrift(getHarmonicState());
+    if (drifted) {
+      applyState(drifted);
+      alignSeats();
+      console.log('[Drift] Harmony drift applied from last sessions.');
+    }
+  } catch (err) {
+    console.error('[Drift] Unable to apply synaptic drift:', err);
+  }
+
   return getHarmonicState();
 }
 

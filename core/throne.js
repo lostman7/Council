@@ -6,7 +6,8 @@ import { searchDocs } from '../memory/vectorCache.js';
 import { summarize, reconcile } from './thinker.js';
 import { saveSession } from './continuum.js';
 import { saveContinuumState } from './continuum_recall.js';
-import { initHarmony, tuneHarmony, dominantSeat } from './harmony.js';
+import { initHarmony, tuneHarmony, dominantSeat, getHarmonicState } from './harmony.js';
+import { recordDriftSnapshot } from './synaptic_drift.js';
 
 export const THRONE_LOG_LIMIT = 200;
 const SUMMARY_INTERVAL = 3;
@@ -27,7 +28,7 @@ let lastBaton = '';
 
 export async function initThrone(win) {
   await initRamdisk();
-  initHarmony();
+  await initHarmony();
   syncThroneLog();
   activeSeat = 'Idle';
   sessionActive = false;
@@ -252,6 +253,7 @@ export async function runCouncilLoop(win) {
     }
 
     await saveContinuumState(sessionTopic || 'Untitled Session');
+    await recordDriftSnapshot(getHarmonicState());
   } catch (err) {
     console.error('Council loop error:', err);
     if (win) {
