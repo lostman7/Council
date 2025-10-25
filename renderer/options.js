@@ -111,14 +111,14 @@ function handleDrawerChange(event) {
   const target = event.target;
   if (!target) return;
 
-  if (target.matches('input[data-seat]')) {
-    window.CouncilAPI.updateSeat(target.dataset.seat, target.value.trim());
-    return;
-  }
-
   if (target.matches('input.seat-toggle[data-seat]')) {
     window.CouncilAPI.setSeatEnabled(target.dataset.seat, target.checked);
     appendLog(`Seat ${target.dataset.seat} ${target.checked ? 'enabled' : 'disabled'}`);
+    return;
+  }
+
+  if (target.matches('input[data-seat]')) {
+    window.CouncilAPI.updateSeat(target.dataset.seat, target.value.trim());
     return;
   }
 

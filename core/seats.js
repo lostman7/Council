@@ -241,8 +241,10 @@ export async function filterActiveSeats(seatRegistry) {
   const active = {};
 
   for (const [seat, data] of Object.entries(seatRegistry)) {
-    const enabled = desired[seat];
-    if (enabled === false) {
+    const enabled = Object.prototype.hasOwnProperty.call(desired, seat)
+      ? desired[seat]
+      : data?.enabled !== false;
+    if (!enabled) {
       traceLog(`[Seat] ${seat} disabled (🔇)`);
       await unloadSeat(seat);
       continue;
@@ -255,20 +257,23 @@ export async function filterActiveSeats(seatRegistry) {
 
 export function getAvailableModel(requested) {
   const { allowed, throne } = MODEL_RUNTIME;
-  const fallback = allowed[0] || FALLBACK_MODEL;
+  const fallbackPool = Array.isArray(allowed) && allowed.length ? allowed : [FALLBACK_MODEL];
+
+  const chooseFallback = () => fallbackPool[Math.floor(Math.random() * fallbackPool.length)];
+
   if (!requested) {
-    return fallback;
+    return chooseFallback();
   }
   if (MODEL_BLACKLIST.has(requested)) {
     traceLog(`[Blacklist] ${requested} rejected`);
-    return fallback;
+    return chooseFallback();
   }
   if (requested === throne) {
     return requested;
   }
-  if (!allowed.includes(requested)) {
+  if (!fallbackPool.includes(requested)) {
     traceLog(`[Fallback] ${requested} not whitelisted, selecting alternate`);
-    return fallback;
+    return chooseFallback();
   }
   return requested;
 }
@@ -283,6 +288,8 @@ export async function seatCycleLoop(seats, iterator) {
     traceLog(`[Council] Spawning ${seatName} → ${model}`);
     if (typeof iterator === 'function') {
       await iterator(seatName, { ...data, model });
+    } else {
+      await spawnSeat(seatName, data?.prompt || '', { modelOverride: model });
     }
     if (MODEL_COOLDOWN_MS > 0 && index < entries.length - 1) {
       traceLog(`[Cooldown] Waiting ${MODEL_COOLDOWN_MS / 1000}s before next model load`);
