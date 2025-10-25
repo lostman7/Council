@@ -23,5 +23,26 @@ Ensure a local Ollama instance is running on `http://localhost:11434` with the s
 - **Council Vision HUD** showing seat activity, active topic, RAM/GPU usage, token estimates, pool models, and last summary timestamp with an in-app log drawer.
 - **Dynamic Seat Registry** editable from the in-app options drawer so each role can be bound to a different Ollama model at runtime.
 - **Session seeding** via the input bar start button to kick off a self-running conversation loop, with additional prompts queued through the chat input.
+- **Continuum Recall** persists the latest topic, seat roster, and harmonic weights so the Council resumes mid-conversation on next launch.
+
+## Codex Summary Template
+
+After every build or change, append a short report so Noirion Zeal can audit what changed and why:
+
+```
+Summary
+
+    Implemented Continuum Recall system to persist Council state (topic, seats, harmony) in /archive/continuum_state.json.
+    Patched main.js to load the last topic at boot and resume discussion if found.
+    Updated throne.js to snapshot state after each iteration.
+    Purpose: ensure persistent memory between sessions; Council now "wakes up mid-conversation".
+
+Snippet
+
+    [Continuum] State saved: Flowfield baseline...
+    [Continuum] Recalled: Flowfield baseline...
+```
+
+Use your own wording for the summary entries, but always include at least three bullet points and a small log snippet that proves the behavior.
 
 Place Flowfield knowledge files (`.txt`, `.md`, `.pdf`) in `flowfield_docs/` before launch to include them in the vector cache.

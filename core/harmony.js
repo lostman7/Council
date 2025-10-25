@@ -17,17 +17,18 @@ const harmonicState = {
   moods: { ...DEFAULT_MOODS }
 };
 
-export function initHarmony() {
-  const seats = getSeats().filter((seat) => seat !== 'Throne');
-  harmonicState.weights = seats.reduce((acc, seat) => {
-    acc[seat] = 1.0;
-    if (!harmonicState.moods[seat]) {
-      harmonicState.moods[seat] = 'Neutral';
-    }
-    return acc;
-  }, {});
-  harmonicState.entropy = 0;
-  harmonicState.lastTopic = '';
+export function initHarmony(initialState) {
+  if (initialState) {
+    applyState(initialState);
+  } else if (globalThis.__councilHarmony__) {
+    applyState(globalThis.__councilHarmony__);
+  } else {
+    harmonicState.entropy = 0;
+    harmonicState.lastTopic = '';
+    harmonicState.moods = { ...DEFAULT_MOODS, ...harmonicState.moods };
+  }
+
+  alignSeats();
   return getHarmonicState();
 }
 
@@ -80,7 +81,50 @@ export function getHarmonicState() {
   };
 }
 
+export function restoreHarmony(state) {
+  applyState(state);
+  alignSeats();
+  return getHarmonicState();
+}
+
 function clamp(value, min, max) {
   if (Number.isNaN(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+function applyState(state) {
+  if (!state || typeof state !== 'object') {
+    return;
+  }
+  if (typeof state.entropy === 'number') {
+    harmonicState.entropy = clamp(state.entropy, 0, 10);
+  }
+  if (typeof state.lastTopic === 'string') {
+    harmonicState.lastTopic = state.lastTopic;
+  }
+  if (state.moods && typeof state.moods === 'object') {
+    harmonicState.moods = { ...DEFAULT_MOODS, ...state.moods };
+  } else {
+    harmonicState.moods = { ...DEFAULT_MOODS, ...harmonicState.moods };
+  }
+  if (state.weights && typeof state.weights === 'object') {
+    harmonicState.weights = { ...state.weights };
+  }
+}
+
+function alignSeats() {
+  const seats = getSeats().filter((seat) => seat !== 'Throne');
+  const alignedWeights = {};
+  for (const seat of seats) {
+    if (!harmonicState.moods[seat]) {
+      harmonicState.moods[seat] = DEFAULT_MOODS[seat] || 'Neutral';
+    }
+    const weight = harmonicState.weights?.[seat];
+    alignedWeights[seat] = clamp(
+      typeof weight === 'number' ? weight : 1.0,
+      0.1,
+      2.0
+    );
+  }
+  harmonicState.weights = alignedWeights;
 }

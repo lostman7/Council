@@ -5,6 +5,7 @@ import { initRamdisk } from './ramdisk.js';
 import { searchDocs } from '../memory/vectorCache.js';
 import { summarize, reconcile } from './thinker.js';
 import { saveSession } from './continuum.js';
+import { saveContinuumState } from './continuum_recall.js';
 import { initHarmony, tuneHarmony, dominantSeat } from './harmony.js';
 
 export const THRONE_LOG_LIMIT = 200;
@@ -249,6 +250,8 @@ export async function runCouncilLoop(win) {
       const allTranscripts = getAllBubbles();
       await saveSession(sessionTopic || 'Untitled Session', allTranscripts);
     }
+
+    await saveContinuumState(sessionTopic || 'Untitled Session');
   } catch (err) {
     console.error('Council loop error:', err);
     if (win) {

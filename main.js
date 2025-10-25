@@ -24,6 +24,7 @@ import {
   listSessions,
   loadSession
 } from './core/continuum.js';
+import { loadContinuumState } from './core/continuum_recall.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -112,24 +113,65 @@ app.whenReady().then(async () => {
   createWindow();
   await initArchive();
   const previousEchoes = latestSummary();
+  const recall = loadContinuumState();
+
+  if (recall?.seats) {
+    seats.resetSeats(recall.seats);
+  }
+  if (recall?.harmony) {
+    globalThis.__councilHarmony__ = recall.harmony;
+  }
+
   await initThrone(win);
   await initVectorCache('./flowfield_docs');
   scheduleOpticalThinker();
   startTelemetryLoop();
 
+  let initialOllama = false;
+
   if (win) {
-    win.webContents.once('did-finish-load', () => {
+    win.webContents.once('did-finish-load', async () => {
       if (previousEchoes) {
         win.webContents.send(
           'council-response',
           `Throne: Recalling previous echoes...\n${previousEchoes}`
         );
       }
+
+      if (recall) {
+        const topicLabel = recall.topic || 'Unnamed Continuum';
+        win.webContents.send(
+          'council-response',
+          `Throne: Remembering prior topic — “${topicLabel}”.`
+        );
+        const ready = initialOllama || (await checkOllama(win));
+        if (ready) {
+          try {
+            await startSession(`${topicLabel} (continuation)`, win);
+          } catch (err) {
+            console.error('continuum resume error:', err);
+            win.webContents.send(
+              'council-response',
+              `Throne: Unable to resume continuum — ${err.message}`
+            );
+          }
+        } else {
+          win.webContents.send(
+            'council-response',
+            'Throne: Ollama offline — cannot resume continuum.'
+          );
+        }
+      } else {
+        win.webContents.send(
+          'council-response',
+          'Throne: No prior memory found — initializing new continuum.'
+        );
+        autoWake(win);
+      }
     });
   }
 
-  await checkOllama(win);
-  autoWake(win);
+  initialOllama = await checkOllama(win);
 });
 
 app.on('window-all-closed', () => {
