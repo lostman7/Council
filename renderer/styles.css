@@ -76,6 +76,7 @@ body {
   background: #14161a;
   padding: 10px;
   margin-bottom: 48px;
+  gap: 8px;
 }
 
 #seedInput {
@@ -87,64 +88,108 @@ body {
   border-radius: 4px;
 }
 
+#startSessionBtn,
 #sendBtn {
-  margin-left: 8px;
   padding: 10px 16px;
   border: none;
   border-radius: 4px;
   background: #2a2d33;
   color: #e3e3e3;
   cursor: pointer;
+  min-width: 120px;
 }
 
-/* --- Options panel --- */
-#optionsPanel {
-  position: absolute;
-  top: 42px;
-  right: 10px;
-  width: 320px;
-  background: #1c1f24;
-  border: 1px solid #333;
-  border-radius: 6px;
-  padding: 15px;
-  color: #e3e3e3;
-  z-index: 100;
+#startSessionBtn:hover,
+#sendBtn:hover {
+  background: #343842;
 }
 
 .hidden {
   display: none;
 }
 
-#optionsPanel label {
-  display: block;
-  margin-top: 10px;
-  font-size: 0.9em;
-}
-
-#optionsPanel select,
-#optionsPanel input {
-  width: 100%;
-  padding: 5px;
-  margin-top: 4px;
-  border: none;
-  border-radius: 4px;
-  background: #23262b;
+/* --- Dynamic Options Drawer --- */
+#optionsDrawer {
+  position: fixed;
+  top: 50px;
+  right: 14px;
+  width: 320px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: #171a22;
+  border: 1px solid #2f3544;
+  border-radius: 8px;
+  padding: 16px;
   color: #e3e3e3;
+  z-index: 150;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
 }
 
-.panelButtons {
-  margin-top: 12px;
-  text-align: right;
+#optionsDrawer .options-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
 
-.panelButtons button {
-  margin-left: 8px;
-  padding: 8px 12px;
-  background: #2a2d33;
-  border: none;
+#closeOptionsDrawer {
+  background: transparent;
+  border: 1px solid rgba(143, 255, 209, 0.3);
+  color: #8fffd1;
   border-radius: 4px;
-  color: #e3e3e3;
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  line-height: 1;
   cursor: pointer;
+}
+
+#closeOptionsDrawer:hover {
+  background: rgba(143, 255, 209, 0.15);
+}
+
+#optionsDrawer h3 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+#seatList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.seat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #1f222b;
+  border: 1px solid rgba(111, 150, 255, 0.2);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.seat-row label {
+  font-size: 0.85em;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #8aa0ff;
+}
+
+.seat-row input {
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  background: #272b36;
+  color: #f0f4ff;
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.seat-row input:focus {
+  outline: 1px solid rgba(138, 160, 255, 0.6);
 }
 
 /* --- HUD + Log Drawer --- */

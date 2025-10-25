@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import os from 'os';
 import * as throne from './core/throne.js';
+import * as seats from './core/seats.js';
 import { summarize } from './core/thinker.js';
 import { initVectorCache } from './memory/vectorCache.js';
 import { getStats } from './core/telemetry.js';
@@ -38,6 +39,13 @@ app.whenReady().then(async () => {
   await initVectorCache('./flowfield_docs');
   scheduleOpticalThinker();
   startTelemetryLoop();
+
+  if (win) {
+    win.webContents.once('did-finish-load', () => {
+      const seatMap = seats.getSeatMap();
+      win.webContents.send('init-seats', seatMap);
+    });
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -56,6 +64,25 @@ ipcMain.on('saveSettings', (_, config) => {
 
 ipcMain.on('seed', async (_, msg) => {
   await throne.handleSeed(msg, win);
+});
+
+ipcMain.on('start-session', async (_, topic) => {
+  await throne.startSession(topic, win);
+});
+
+ipcMain.on('stop-session', () => {
+  throne.stopSession(win);
+});
+
+ipcMain.on('update-seat', (_, { name, model }) => {
+  const updated = seats.updateSeatModel(name, model);
+  if (!updated) return;
+  if (win) {
+    const seatMap = seats.getSeatMap();
+    win.webContents.send('init-seats', seatMap);
+    const stamp = new Date().toLocaleTimeString();
+    win.webContents.send('system-log', `[${stamp}] Seat ${name} model set to ${model}`);
+  }
 });
 
 const THINKER_INTERVAL_MS = 15 * 60 * 1000;

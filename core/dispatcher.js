@@ -4,9 +4,9 @@ import { pickModel, refreshPool } from './pool.js';
 let lastPoolCheck = 0;
 const POOL_CHECK_INTERVAL_MS = 15 * 1000;
 
-export async function spawnSeat(role, prompt) {
+export async function spawnSeat(role, prompt, modelOverride) {
   await ensurePool();
-  const model = pickModel(role);
+  const model = modelOverride && modelOverride.trim() ? modelOverride.trim() : pickModel(role);
 
   const body = {
     model,

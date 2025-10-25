@@ -1,14 +1,10 @@
 const sendBtn = document.getElementById('sendBtn');
+const startSessionBtn = document.getElementById('startSessionBtn');
 const seedInput = document.getElementById('seedInput');
 
 const optionsBtn = document.getElementById('optionsBtn');
-const panel = document.getElementById('optionsPanel');
-const closeOptions = document.getElementById('closeOptions');
-const saveOptions = document.getElementById('saveOptions');
 const councilDot = document.getElementById('councilDot');
 const seatStatus = document.getElementById('seatStatus');
-
-let active = false;
 
 function addMessage(sender, text, side) {
   const msg = document.createElement('div');
@@ -24,14 +20,15 @@ function setCouncilDot(state) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  addMessage('Throne', 'Council loaded. Awaiting topic...', 'left');
+  addMessage('Throne', 'Council loaded. Awaiting session seed...', 'left');
   setCouncilDot('idle');
 });
 
 if (window.CouncilAPI?.on) {
   window.CouncilAPI.on('council-response', (payload) => {
     const { sender, message } = parseSeatPayload(payload);
-    addMessage(sender, message, 'right');
+    const side = sender === 'Throne' || sender === 'Optical Thinker' ? 'left' : 'right';
+    addMessage(sender, message, side);
   });
 
   window.CouncilAPI.on('seat-change', (role) => {
@@ -40,34 +37,40 @@ if (window.CouncilAPI?.on) {
   });
 }
 
-optionsBtn.onclick = () => panel.classList.toggle('hidden');
-closeOptions.onclick = () => panel.classList.add('hidden');
-
-saveOptions.onclick = () => {
-  const config = {
-    throne: document.getElementById('modelThrone').value,
-    physicist: document.getElementById('modelPhysicist').value,
-    ramdisk: parseInt(document.getElementById('ramSize').value, 10)
-  };
-  if (window.CouncilAPI?.send) {
-    window.CouncilAPI.send('saveSettings', config);
+optionsBtn.onclick = () => {
+  if (window.CouncilOptions?.toggle) {
+    window.CouncilOptions.toggle();
   }
-  panel.classList.add('hidden');
 };
 
 sendBtn.onclick = () => {
   const seed = seedInput.value.trim();
   if (!seed) return;
-  if (!active) {
-    active = true;
-    addMessage('Throne', 'Council assembled. Topic pending.', 'left');
-  }
-  addMessage('Throne', seed, 'left');
+  addMessage('User', seed, 'left');
   if (window.CouncilAPI?.send) {
     window.CouncilAPI.send('seed', seed);
   }
   seedInput.value = '';
 };
+
+startSessionBtn.onclick = () => {
+  const topic = seedInput.value.trim();
+  if (!topic) {
+    const promptTopic = window.prompt('Seed topic for the Council:');
+    if (!promptTopic) return;
+    sendStartSession(promptTopic);
+    return;
+  }
+  sendStartSession(topic);
+};
+
+function sendStartSession(topic) {
+  addMessage('User', topic, 'left');
+  if (window.CouncilAPI?.send) {
+    window.CouncilAPI.send('start-session', topic);
+  }
+  seedInput.value = '';
+}
 
 function parseSeatPayload(payload) {
   if (typeof payload !== 'string') {

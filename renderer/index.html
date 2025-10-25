@@ -15,30 +15,6 @@
     <div id="optionsBtn">⚙️</div>
   </div>
 
-  <div id="optionsPanel" class="hidden">
-    <h3>Council Options</h3>
-
-    <label>Throne Model:</label>
-    <select id="modelThrone">
-      <option value="llama3-groq-tool-use:8b">llama3-groq-tool-use 8b</option>
-      <option value="llama3.2:3b">llama3.2 3b</option>
-    </select>
-
-    <label>Physicist Model:</label>
-    <select id="modelPhysicist">
-      <option value="llama3.2:3b">llama3.2 3b</option>
-      <option value="cogito:3b">cogito 3b</option>
-    </select>
-
-    <label>RAM Disk Size (MB):</label>
-    <input id="ramSize" type="number" min="128" max="2048" value="1024" />
-
-    <div class="panelButtons">
-      <button id="saveOptions">Save</button>
-      <button id="closeOptions">Close</button>
-    </div>
-  </div>
-
   <div id="chat">
     <div id="left" class="column left"></div>
     <div id="right" class="column right"></div>
@@ -46,9 +22,11 @@
 
   <div id="inputBar">
     <input id="seedInput" type="text" placeholder="Enter a topic or question..." />
+    <button id="startSessionBtn">Start Session</button>
     <button id="sendBtn">Send</button>
   </div>
 
+  <script src="options.js" type="module"></script>
   <script src="app.js" type="module"></script>
   <script src="hud.js" type="module"></script>
 </body>

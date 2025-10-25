@@ -5,6 +5,7 @@ const metricsGroup = document.createElement('div');
 metricsGroup.className = 'hud-metrics';
 
 const seatSpan = createSpan('Seat: Idle');
+const topicSpan = createSpan('Topic: —');
 const ramSpan = createSpan('RAM 0.0%');
 const gpuSpan = createSpan('GPU n/a');
 const tokenSpan = createSpan('Tokens 0');
@@ -12,7 +13,7 @@ const summarySpan = createSpan('Thinker —');
 const modelsSpan = createSpan('Models: —');
 const updatedSpan = createSpan('Updated —');
 
-metricsGroup.append(seatSpan, ramSpan, gpuSpan, tokenSpan, summarySpan, modelsSpan, updatedSpan);
+metricsGroup.append(seatSpan, topicSpan, ramSpan, gpuSpan, tokenSpan, summarySpan, modelsSpan, updatedSpan);
 
 const controlsGroup = document.createElement('div');
 controlsGroup.className = 'hud-controls';
@@ -48,6 +49,7 @@ if (window.CouncilAPI?.on) {
   window.CouncilAPI.on('telemetry-update', ({ stats, pool, metrics }) => {
     if (metrics) {
       seatSpan.textContent = `Seat: ${metrics.activeSeat ?? 'Idle'}`;
+      topicSpan.textContent = `Topic: ${metrics.sessionTopic ? truncate(metrics.sessionTopic, 40) : '—'}`;
       tokenSpan.textContent = `Tokens ${metrics.contextTokens ?? 0}`;
       summarySpan.textContent = `Thinker ${formatTimestamp(metrics.lastSummaryAt)}`;
     }
@@ -95,4 +97,10 @@ function formatTimestamp(input) {
   const date = new Date(input);
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleTimeString();
+}
+
+function truncate(text, max) {
+  if (typeof text !== 'string') return '';
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}…`;
 }
