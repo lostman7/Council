@@ -75,42 +75,6 @@ async function checkOllama(targetWin) {
   }
 }
 
-function autoWake(targetWin) {
-  let spoken = false;
-  setTimeout(async () => {
-    if (spoken || !targetWin) return;
-    const metrics = getThroneMetrics();
-    if (metrics.sessionActive) {
-      spoken = true;
-      return;
-    }
-    const ok = await checkOllama(targetWin);
-    if (!ok) {
-      targetWin.webContents.send(
-        'council-response',
-        'Throne: Ollama offline — cannot begin session.'
-      );
-      return;
-    }
-    const seed =
-      'Flowfield baseline: Discuss initial resonance mapping between Physicist and Engineer.';
-    targetWin.webContents.send(
-      'council-response',
-      `Throne: Auto-seeded default session — “${seed}”`
-    );
-    try {
-      await startSession(seed, targetWin);
-      spoken = true;
-    } catch (err) {
-      console.error('autoWake error:', err);
-      targetWin.webContents.send(
-        'council-response',
-        `Throne: startup error — ${err.message}`
-      );
-    }
-  }, 6000);
-}
-
 app.whenReady().then(async () => {
   createWindow();
   setTelemetryTarget(win);
@@ -170,9 +134,8 @@ app.whenReady().then(async () => {
       } else {
         win.webContents.send(
           'council-response',
-          'Throne: No prior memory found — initializing new continuum.'
+          'Throne: No prior memory found — standing by for your first message.'
         );
-        autoWake(win);
       }
     });
   }
@@ -245,7 +208,10 @@ ipcMain.on('seed', async (_evt, text) => {
 });
 
 ipcMain.on('get-seats', (evt) => {
-  evt.sender.send('seats-list', seats.getAllSeatConfigs());
+  evt.sender.send('seats-list', {
+    seats: seats.getAllSeatConfigs(),
+    allowedModels: seats.getAllowedModels()
+  });
   evt.sender.send('auto-rotate-state', isAutoRotationEnabled());
 });
 

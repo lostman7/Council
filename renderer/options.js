@@ -40,32 +40,73 @@ optionsBtn.onclick = () => {
 };
 
 // Render the seat list when main replies
-window.CouncilAPI.on('seats-list', (all) => {
+window.CouncilAPI.on('seats-list', (payload) => {
   ensureDrawer();
   const container = drawer.querySelector('#seatList');
   container.innerHTML = '';
 
-  if (!all || Object.keys(all).length === 0) {
+  const data = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const seatMap = data.seats || (payload && !Array.isArray(payload) ? payload : {});
+  const globalAllowed = Array.isArray(data.allowedModels) ? data.allowedModels : [];
+
+  if (!seatMap || Object.keys(seatMap).length === 0) {
     container.innerHTML = `<p style="color:#888;text-align:center;">
       (No seats loaded. Try restarting or checking Ollama.)
     </p>`;
     return;
   }
 
-  Object.entries(all).forEach(([name, cfg]) => {
+  Object.entries(seatMap).forEach(([name, cfg]) => {
     const row = document.createElement('div');
     row.className = 'seat-row';
     const enabled = cfg?.enabled !== false;
     const variantCount = typeof cfg?.variants === 'number' ? cfg.variants : 0;
     const variantLabel = variantCount ? `${variantCount} variants` : '—';
-    row.innerHTML = `
-      <label class="seat-label">
-        <input type="checkbox" class="seat-toggle" data-seat="${name}" ${enabled ? 'checked' : ''} />
-        <span>${name}</span>
-      </label>
-      <input type="text" value="${cfg?.model || ''}" data-seat="${name}" />
-      <span class="variant-count">${variantLabel}</span>
-    `;
+
+    const label = document.createElement('label');
+    label.className = 'seat-label';
+
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.className = 'seat-toggle';
+    toggle.dataset.seat = name;
+    toggle.checked = enabled;
+
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = name;
+
+    label.append(toggle, nameSpan);
+
+    const select = document.createElement('select');
+    select.className = 'model-select';
+    select.dataset.seat = name;
+
+    select.append(new Option('off', 'off'));
+    select.append(new Option('auto', ''));
+
+    const allowed = Array.isArray(cfg?.allowedModels) && cfg.allowedModels.length
+      ? cfg.allowedModels
+      : globalAllowed;
+    allowed.forEach((modelName) => {
+      if (!modelName) return;
+      select.append(new Option(modelName, modelName));
+    });
+
+    if (!enabled) {
+      select.value = 'off';
+      select.disabled = true;
+    } else if (cfg?.model) {
+      select.value = cfg.model;
+    } else {
+      select.value = '';
+    }
+    select.dataset.previousValue = select.value || '';
+
+    const variantSpan = document.createElement('span');
+    variantSpan.className = 'variant-count';
+    variantSpan.textContent = variantLabel;
+
+    row.append(label, select, variantSpan);
     container.appendChild(row);
   });
 
@@ -92,9 +133,16 @@ if (window.CouncilAPI?.onSafeMode) {
 window.CouncilAPI.on('seats-updated', ({ name, model, enabled }) => {
   ensureDrawer();
   if (model !== undefined) {
-    const input = drawer.querySelector(`input[data-seat="${name}"]`);
-    if (input && input.value !== model) {
-      input.value = model;
+    const select = drawer.querySelector(`select.model-select[data-seat="${name}"]`);
+    if (select) {
+      const next = model || '';
+      if (select.value !== next) {
+        select.value = next;
+      }
+      if (!next && select.disabled) {
+        select.disabled = false;
+      }
+      select.dataset.previousValue = next;
     }
     appendLog(`Seat updated: ${name} → ${model}`);
   }
@@ -102,6 +150,18 @@ window.CouncilAPI.on('seats-updated', ({ name, model, enabled }) => {
     const toggle = drawer.querySelector(`input.seat-toggle[data-seat="${name}"]`);
     if (toggle) {
       toggle.checked = Boolean(enabled);
+    }
+    const select = drawer.querySelector(`select.model-select[data-seat="${name}"]`);
+    if (select) {
+      if (enabled) {
+        select.disabled = false;
+        if (select.value === 'off') {
+          select.value = '';
+        }
+      } else {
+        select.value = 'off';
+        select.disabled = true;
+      }
     }
     appendLog(`Seat ${name} ${enabled ? 'enabled' : 'disabled'}`);
   }
@@ -113,12 +173,41 @@ function handleDrawerChange(event) {
 
   if (target.matches('input.seat-toggle[data-seat]')) {
     window.CouncilAPI.setSeatEnabled(target.dataset.seat, target.checked);
+    const select = drawer.querySelector(`select.model-select[data-seat="${target.dataset.seat}"]`);
+    if (select) {
+      if (target.checked) {
+        select.disabled = false;
+        const restore = select.dataset.previousValue ?? '';
+        select.value = restore;
+      } else {
+        if (select.value !== 'off') {
+          select.dataset.previousValue = select.value;
+        }
+        select.value = 'off';
+        select.disabled = true;
+      }
+    }
     appendLog(`Seat ${target.dataset.seat} ${target.checked ? 'enabled' : 'disabled'}`);
     return;
   }
 
-  if (target.matches('input[data-seat]')) {
-    window.CouncilAPI.updateSeat(target.dataset.seat, target.value.trim());
+  if (target.matches('select.model-select[data-seat]')) {
+    const seat = target.dataset.seat;
+    const value = target.value;
+    const previous = target.dataset.previousValue ?? '';
+    if (value === 'off') {
+      window.CouncilAPI.setSeatEnabled(seat, false);
+      window.CouncilAPI.updateSeat(seat, '');
+      target.dataset.previousValue = previous;
+      target.disabled = true;
+      appendLog(`Seat ${seat} disabled via model dropdown`);
+      return;
+    }
+
+    window.CouncilAPI.setSeatEnabled(seat, true);
+    window.CouncilAPI.updateSeat(seat, value);
+    target.dataset.previousValue = value || '';
+    appendLog(`Seat ${seat} model → ${value || 'auto'}`);
     return;
   }
 

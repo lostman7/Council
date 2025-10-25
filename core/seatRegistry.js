@@ -64,12 +64,9 @@ export async function loadSeatRegistry() {
       const saved = savedSeats[role] || {};
       const defaultModel = DEFAULT_MODELS[role] || null;
       const manualModel = typeof saved.model === 'string' && saved.model.trim() ? saved.model.trim() : null;
-      const manualOverride = manualModel && (!defaultModel || manualModel !== defaultModel);
-      const rotationEnabled = saved.rotation !== undefined ? Boolean(saved.rotation) : !manualOverride;
       registry[role] = {
-        model: manualOverride ? manualModel : null,
+        model: manualModel,
         defaultModel,
-        rotation: rotationEnabled,
         enabled: saved.enabled !== undefined ? Boolean(saved.enabled) : true,
         variants
       };
@@ -83,7 +80,6 @@ export async function loadSeatRegistry() {
     registry.Throne = {
       model: null,
       defaultModel: DEFAULT_MODELS.Throne,
-      rotation: true,
       enabled: true,
       variants: []
     };
@@ -102,8 +98,7 @@ export async function saveSeatPreferences(seatConfigs) {
   for (const [name, cfg] of Object.entries(seatConfigs)) {
     serialisable[name] = {
       model: cfg.model || null,
-      enabled: cfg.enabled !== false,
-      rotation: cfg.rotation !== false
+      enabled: cfg.enabled !== false
     };
   }
   const next = { ...existing, seats: serialisable };

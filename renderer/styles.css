@@ -234,7 +234,13 @@ body {
   color: #5ab8ff;
 }
 
-.seat-row input {
+.model-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.seat-row input,
+.seat-row select {
   width: 100%;
   padding: 8px;
   border: none;
@@ -244,7 +250,8 @@ body {
   font-family: 'IBM Plex Mono', monospace;
 }
 
-.seat-row input:focus {
+.seat-row input:focus,
+.seat-row select:focus {
   outline: 1px solid rgba(138, 160, 255, 0.6);
 }
 

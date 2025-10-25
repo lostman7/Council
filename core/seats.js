@@ -20,7 +20,8 @@ export const MODEL_RUNTIME = {
     'qwen3:1.7b',
     'qwen3:0.6b',
     'PhysicsObsession/sequoia-1b:latest',
-    'llama3.2:3b'
+    'llama3.2:3b',
+    'cogito:3b'
   ],
   embeddings: ['qwen3-embedding:0.6b', 'mxbai-embed-large:latest'],
   blacklist: [
@@ -34,35 +35,11 @@ export const MODEL_RUNTIME = {
 
 const MODEL_BLACKLIST = new Set(MODEL_RUNTIME.blacklist);
 
-const MODEL_POOLS = {
-  Physicist: ['deepseek-r1:1.5b', 'qwen3:1.7b', 'llama3.2:3b'],
-  Engineer: ['qwen2.5-coder:1.5b', 'qwen2.5-coder:0.5b', 'tinydolphin:1.1b'],
-  Linguist: ['qwen3:0.6b', 'llama3.2:3b', 'PhysicsObsession/sequoia-1b:latest'],
-  Thinker: ['llama3.2:3b', 'qwen3:1.7b'],
-  Navigator: ['PhysicsObsession/sequoia-1b:latest', 'tinydolphin:1.1b', 'qwen3:0.6b'],
-  Doctor: ['llama3.2:3b', 'deepseek-r1:1.5b'],
-  Surgeon: ['deepseek-r1:1.5b', 'llama3.2:3b'],
-  Machinist: ['qwen2.5-coder:1.5b', 'qwen2.5-coder:0.5b', 'tinydolphin:1.1b'],
-  Architect: ['qwen3:1.7b', 'llama3.2:3b'],
-  Historian: ['qwen3:0.6b', 'llama3.2:3b'],
-  Philosopher: ['llama3.2:3b', 'qwen3:1.7b'],
-  Artist: ['tinydolphin:1.1b', 'qwen3:1.7b'],
-  Diplomat: ['llama3.2:3b', 'qwen3:0.6b'],
-  Strategist: ['deepseek-r1:1.5b', 'llama3.2:3b'],
-  OpenMind: ['llama3.2:3b', 'PhysicsObsession/sequoia-1b:latest'],
-  Throne: ['cogito:3b', 'llama3.2:3b']
-};
-
-const POOL_LOOKUP = Object.fromEntries(
-  Object.entries(MODEL_POOLS).map(([role, models]) => [role.toLowerCase(), models])
-);
-
 let seatConfigs = {
   Throne: {
     model: 'cogito:3b',
     defaultModel: 'cogito:3b',
     enabled: true,
-    rotation: true,
     variants: []
   }
 };
@@ -72,15 +49,28 @@ let initialized = false;
 async function applyActiveSeatOverrides() {
   const config = await getConfig();
   const activeSeats = config.activeSeats || {};
+  const configuredModels = config.models || {};
   let changed = false;
-  for (const [name, enabled] of Object.entries(activeSeats)) {
-    if (!seatConfigs[name]) continue;
-    const flag = Boolean(enabled);
-    if (seatConfigs[name].enabled !== flag) {
-      seatConfigs[name].enabled = flag;
+
+  for (const [name, cfg] of Object.entries(seatConfigs)) {
+    const enabled = Object.prototype.hasOwnProperty.call(activeSeats, name)
+      ? Boolean(activeSeats[name])
+      : cfg.enabled !== false;
+    if (cfg.enabled !== enabled) {
+      cfg.enabled = enabled;
       changed = true;
     }
+
+    if (Object.prototype.hasOwnProperty.call(configuredModels, name)) {
+      const modelValue = configuredModels[name];
+      const nextModel = typeof modelValue === 'string' && modelValue.trim() ? modelValue.trim() : null;
+      if (cfg.model !== nextModel) {
+        cfg.model = nextModel;
+        changed = true;
+      }
+    }
   }
+
   if (changed) {
     traceLog('[Seat] Applied active seat overrides from config');
   }
@@ -94,9 +84,20 @@ function buildActiveSeatMap() {
   return map;
 }
 
-async function persistActiveSeatConfig() {
+function buildModelMap() {
+  const map = {};
+  for (const [name, cfg] of Object.entries(seatConfigs)) {
+    if (cfg?.model) {
+      map[name] = cfg.model;
+    }
+  }
+  return map;
+}
+
+async function persistConfigState() {
   const activeSeats = buildActiveSeatMap();
-  await saveConfig({ activeSeats });
+  const models = buildModelMap();
+  await saveConfig({ activeSeats, models });
 }
 
 async function ensureInitialized() {
@@ -105,7 +106,7 @@ async function ensureInitialized() {
     initializationPromise = loadSeatRegistry().then(async (registry) => {
       seatConfigs = registry;
       await applyActiveSeatOverrides();
-      void persistActiveSeatConfig();
+      void persistConfigState();
       initialized = true;
       trace('Seats', 'registry.loaded', { count: Object.keys(seatConfigs).length });
       return seatConfigs;
@@ -139,16 +140,20 @@ export function getSeatConfig(name) {
 export function getAllSeatConfigs() {
   const result = {};
   for (const [name, cfg] of Object.entries(seatConfigs)) {
-    const rotationEnabled = cfg.rotation !== false;
     result[name] = {
       model: resolveDisplayModel(name, cfg),
       enabled: cfg.enabled !== false,
       variants: Array.isArray(cfg.variants) ? cfg.variants.length : 0,
-      rotation: rotationEnabled,
-      defaultModel: cfg.defaultModel || DEFAULT_MODELS[name] || null
+      defaultModel: cfg.defaultModel || DEFAULT_MODELS[name] || null,
+      allowedModels: getAllowedModels()
     };
   }
   return result;
+}
+
+export function getAllowedModels() {
+  const list = Array.isArray(MODEL_RUNTIME.allowed) ? MODEL_RUNTIME.allowed : [];
+  return Array.from(new Set(list.filter((model) => !MODEL_BLACKLIST.has(model))));
 }
 
 export function resetSeats(newMap = {}) {
@@ -158,8 +163,7 @@ export function resetSeats(newMap = {}) {
         model: cfg.model ?? null,
         defaultModel: cfg.defaultModel ?? (DEFAULT_MODELS[name] || null),
         enabled: cfg.enabled !== false,
-        rotation: cfg.rotation !== false,
-        variants: []
+        variants: Array.isArray(cfg.variants) ? cfg.variants : []
       };
     } else {
       if (cfg.model !== undefined) {
@@ -168,18 +172,19 @@ export function resetSeats(newMap = {}) {
       if (cfg.enabled !== undefined) {
         seatConfigs[name].enabled = Boolean(cfg.enabled);
       }
-      if (cfg.rotation !== undefined) {
-        seatConfigs[name].rotation = Boolean(cfg.rotation);
-      }
       if (cfg.defaultModel !== undefined) {
         seatConfigs[name].defaultModel = cfg.defaultModel || seatConfigs[name].defaultModel || null;
-      } else if (!seatConfigs[name].defaultModel) {
+      }
+      if (!seatConfigs[name].defaultModel) {
         seatConfigs[name].defaultModel = DEFAULT_MODELS[name] || null;
+      }
+      if (Array.isArray(cfg.variants)) {
+        seatConfigs[name].variants = [...cfg.variants];
       }
     }
   }
   persistSeatPreferences();
-  void persistActiveSeatConfig();
+  void persistConfigState();
 }
 
 export function updateSeatModel(name, model) {
@@ -190,24 +195,16 @@ export function updateSeatModel(name, model) {
       model: trimmed || null,
       defaultModel: DEFAULT_MODELS[name] || null,
       enabled: true,
-      rotation: !trimmed,
       variants: []
     };
   } else {
-    if (trimmed) {
-      seatConfigs[name].model = trimmed;
-      seatConfigs[name].rotation = false;
-    } else {
-      seatConfigs[name].model = null;
-      seatConfigs[name].rotation = true;
-    }
+    seatConfigs[name].model = trimmed || null;
     if (!seatConfigs[name].defaultModel) {
       seatConfigs[name].defaultModel = DEFAULT_MODELS[name] || seatConfigs[name].defaultModel || null;
     }
-    seatConfigs[name].poolIndex = 0;
   }
   persistSeatPreferences();
-  void persistActiveSeatConfig();
+  void persistConfigState();
   trace('Seats', 'update', { seat: name, model: trimmed || null });
   console.log(`[Council] Seat updated: ${name} → ${model}`);
 }
@@ -218,14 +215,13 @@ export function setSeatEnabled(name, enabled) {
       model: null,
       defaultModel: DEFAULT_MODELS[name] || null,
       enabled: Boolean(enabled),
-      rotation: true,
       variants: []
     };
   } else {
     seatConfigs[name].enabled = Boolean(enabled);
   }
   persistSeatPreferences();
-  void persistActiveSeatConfig();
+  void persistConfigState();
   trace('Seats', 'enabled', { seat: name, enabled: Boolean(enabled) });
 }
 
@@ -256,8 +252,11 @@ export async function filterActiveSeats(seatRegistry) {
 }
 
 export function getAvailableModel(requested) {
-  const { allowed, throne } = MODEL_RUNTIME;
-  const fallbackPool = Array.isArray(allowed) && allowed.length ? allowed : [FALLBACK_MODEL];
+  const fallbackPool = getAllowedModels();
+  const throne = MODEL_RUNTIME.throne;
+  if (!fallbackPool.length) {
+    fallbackPool.push(FALLBACK_MODEL);
+  }
 
   const chooseFallback = () => fallbackPool[Math.floor(Math.random() * fallbackPool.length)];
 
@@ -297,7 +296,7 @@ export async function seatCycleLoop(seats, iterator) {
     }
   }
   if (entries.length) {
-    traceLog('[Cycle] All seats completed rotation.');
+    traceLog('[Cycle] All seats completed cycle.');
   }
 }
 
@@ -317,11 +316,18 @@ export async function spawnSeat(
   }
 
   const persona = loadPersonaSafe(role);
-  let selectedModel = selectModelForSeat(role, config, modelOverride);
-  selectedModel = await ensureModelChoice(role, selectedModel);
+  const baseModel =
+    modelOverride ||
+    config?.model ||
+    config?.defaultModel ||
+    DEFAULT_MODELS[role] ||
+    FALLBACK_MODEL;
+  const selectedModel = await ensureModelChoice(role, baseModel);
   if (config) {
     config.lastModel = selectedModel;
   }
+  trace('Seat', 'model.select', { role, model: selectedModel, override: Boolean(modelOverride) });
+  console.log(`[COUNCIL] Seat '${role}' assigned model → ${selectedModel}`);
   const systemParts = [systemPrompt || `You are the ${role} of the Council.`];
 
   if (persona?.tone) {
@@ -363,81 +369,19 @@ function persistSeatPreferences() {
 }
 
 function resolveDisplayModel(role, cfg) {
-  if (cfg?.rotation === false && cfg?.model) {
-    return cfg.model;
-  }
   if (cfg?.model) {
     return cfg.model;
   }
   if (cfg?.lastModel) {
     return cfg.lastModel;
   }
-  const pool = getModelPool(role);
-  if (pool?.length) {
-    return pool[0];
-  }
   if (cfg?.defaultModel) {
     return cfg.defaultModel;
   }
-  return DEFAULT_MODELS[role] || 'llama3.2:3b';
-}
-
-function getModelPool(role) {
-  if (!role) return null;
-  return POOL_LOOKUP[role.toLowerCase()] || null;
-}
-
-function takeNextModelFromPool(role, config) {
-  const pool = getModelPool(role);
-  if (!pool || !pool.length) {
-    return null;
+  if (DEFAULT_MODELS[role]) {
+    return DEFAULT_MODELS[role];
   }
-  const index = Math.max(0, config?.poolIndex ?? 0) % pool.length;
-  const next = pool[index];
-  if (config) {
-    config.poolIndex = (index + 1) % pool.length;
-  }
-  return next;
-}
-
-function selectModelForSeat(role, config, override) {
-  if (override) {
-    return override;
-  }
-
-  const rotationEnabled = config?.rotation !== false;
-  let model = null;
-
-  if (rotationEnabled) {
-    model = takeNextModelFromPool(role, config);
-  }
-
-  if (!model) {
-    const manual = config?.model;
-    if (manual && manual.trim()) {
-      model = manual.trim();
-    }
-  }
-
-  if (!model) {
-    model =
-      takeNextModelFromPool(role, config) ||
-      config?.defaultModel ||
-      DEFAULT_MODELS[role] ||
-      'llama3.2:3b';
-  }
-
-  if (config) {
-    config.lastModel = model;
-  }
-
-  trace('Seat', 'model.select', { role, model });
-  console.log(`[COUNCIL] Seat '${role}' assigned model → ${model}`);
-  return model;
-}
-
-export function pickModelForSeat(role) {
-  return takeNextModelFromPool(role, seatConfigs[role] || {});
+  return MODEL_RUNTIME.allowed[0] || FALLBACK_MODEL;
 }
 
 async function ensureModelChoice(role, candidate) {

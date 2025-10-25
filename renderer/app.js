@@ -12,6 +12,7 @@ const councilDot = document.getElementById('councilDot');
 
 const logPanel = document.getElementById('councilLogs');
 const LOG_LIMIT = 200;
+let firstMessageSent = false;
 
 function logMessage(message) {
   if (!logPanel) return;
@@ -47,6 +48,7 @@ startSessionBtn.onclick = () => {
   councilDot.classList.add('green');
   addMessage('Throne', `Council assembled on "${topic}"`, 'left');
   logMessage(`Council session started with topic "${topic}"`);
+  firstMessageSent = true;
 };
 
 // send a manual turn/seed
@@ -60,6 +62,12 @@ sendBtn.onclick = async () => {
   sendBtn.textContent = '⏳ Thinking...';
 
   try {
+    if (!firstMessageSent) {
+      window.dispatchEvent(
+        new CustomEvent('send-first-message', { detail: { message: text } })
+      );
+      firstMessageSent = true;
+    }
     await window.CouncilAPI.sendSeed(text);
     logMessage('Send: ✅ Reply received.');
   } catch (err) {
