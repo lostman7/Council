@@ -3,7 +3,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import os from 'os';
-import fetch from 'node-fetch';
 import {
   initThrone,
   startSession,
@@ -227,7 +226,7 @@ ipcMain.on('update-seat', (_evt, { name, model }) => {
     seats.updateSeatModel(name, model);
     if (win) {
       win.webContents.send('seats-updated', { name, model });
-      resetSeatStates([...seats.getSeats(), 'Throne']);
+      resetSeatStates(seats.getSeats());
     }
   } catch (e) {
     console.error('update-seat error:', e);

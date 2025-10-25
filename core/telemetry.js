@@ -19,10 +19,14 @@ async function loadSystemInformation() {
 
 let telemetryWindow = null;
 const seatStates = new Map();
+let lastSeedBroadcast = '';
 
 export function setTelemetryTarget(win) {
   telemetryWindow = win || null;
   broadcastSeatStates();
+  if (telemetryWindow && lastSeedBroadcast) {
+    telemetryWindow.webContents.send('new-seed', lastSeedBroadcast);
+  }
 }
 
 export function resetSeatStates(seats = []) {
@@ -30,29 +34,41 @@ export function resetSeatStates(seats = []) {
   const roster = Array.isArray(seats) ? seats : [];
   for (const name of roster) {
     if (typeof name === 'string' && name.trim()) {
-      seatStates.set(name, 'Idle');
+      seatStates.set(name, { state: 'Idle', icon: null });
     }
   }
   broadcastSeatStates();
 }
 
-export function emitSeatUpdate(name, state) {
+export function emitSeatUpdate(name, state, meta = {}) {
   if (typeof name !== 'string' || !name.trim()) {
     return;
   }
   const cleanName = name.trim();
   const cleanState = typeof state === 'string' && state.trim() ? state.trim() : 'Idle';
-  seatStates.set(cleanName, cleanState);
+  const existing = seatStates.get(cleanName) || {};
+  seatStates.set(cleanName, {
+    state: cleanState,
+    icon: meta.icon ?? existing.icon ?? null
+  });
   broadcastSeatStates();
+}
+
+export function broadcastNewSeed(seed) {
+  if (typeof seed !== 'string') return;
+  lastSeedBroadcast = seed;
+  if (!telemetryWindow) return;
+  telemetryWindow.webContents.send('new-seed', seed);
 }
 
 function broadcastSeatStates() {
   if (!telemetryWindow) {
     return;
   }
-  const payload = Array.from(seatStates.entries()).map(([seat, status]) => ({
+  const payload = Array.from(seatStates.entries()).map(([seat, data]) => ({
     name: seat,
-    state: status
+    state: data.state,
+    icon: data.icon || null
   }));
   telemetryWindow.webContents.send('seat-status', payload);
 }

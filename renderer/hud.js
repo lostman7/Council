@@ -36,6 +36,7 @@ document.body.appendChild(hud);
 const logToggleBtn = document.getElementById('toggleLogs');
 const logPanel = document.getElementById('councilLogs');
 const seatStatusPanel = document.getElementById('seatStatus');
+const logAppender = createLogAppender(logPanel);
 
 if (logToggleBtn && logPanel) {
   logToggleBtn.addEventListener('click', () => {
@@ -85,8 +86,19 @@ if (window.CouncilAPI?.onSeatUpdate && seatStatusPanel) {
       return;
     }
     seatStatusPanel.innerHTML = seats
-      .map(({ name, state }) => `<div class="seatStat ${String(state).toLowerCase()}">${name}: ${state}</div>`)
+      .map(({ name, state, icon }) => {
+        const glyph = icon ? `${icon} ` : '';
+        return `<div class="seatStat ${String(state).toLowerCase()}">${glyph}${name}: ${state}</div>`;
+      })
       .join('');
+  });
+}
+
+if (window.CouncilAPI?.on) {
+  window.CouncilAPI.on('new-seed', (seed) => {
+    if (seed) {
+      logAppender(`New seed issued: ${seed}`);
+    }
   });
 }
 
@@ -94,6 +106,21 @@ function createSpan(text) {
   const span = document.createElement('span');
   span.textContent = text;
   return span;
+}
+
+function createLogAppender(panel) {
+  if (!panel) {
+    return () => {};
+  }
+  return (message) => {
+    const entry = document.createElement('div');
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    panel.appendChild(entry);
+    if (panel.children.length > 300) {
+      panel.removeChild(panel.firstChild);
+    }
+    panel.scrollTop = panel.scrollHeight;
+  };
 }
 
 function formatTimestamp(input) {

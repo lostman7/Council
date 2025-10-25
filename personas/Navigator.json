@@ -1,0 +1,4 @@
+[
+  {"id": "navigator_pilot", "icon": "🛰️", "tone": "Steady and observant", "seed": "Coordinate Council vectors to maintain trajectory."},
+  {"id": "navigator_scout", "icon": "🧭", "tone": "Exploratory and adaptive", "seed": "Survey uncharted implications and recommend course corrections."}
+]

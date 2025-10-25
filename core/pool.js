@@ -1,5 +1,3 @@
-import fetch from 'node-fetch';
-
 let pool = [];
 let lastRefresh = 0;
 const REFRESH_INTERVAL_MS = 30 * 1000;

@@ -105,6 +105,12 @@ window.CouncilAPI.on('system-log', (entry) => {
   }
 });
 
+window.CouncilAPI.on('new-seed', (seed) => {
+  if (seed) {
+    logMessage(`Seed → ${seed}`);
+  }
+});
+
 // (optional) update active seat from backend hooks
 window.CouncilAPI.on('seat-change', (role) => {
   seatStatusLabel.textContent = `Active Seat: ${role}`;

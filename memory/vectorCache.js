@@ -1,7 +1,5 @@
 import fs from 'fs-extra';
 import path from 'path';
-import fetch from 'node-fetch';
-import pdfParse from 'pdf-parse';
 import { ramPath } from '../core/ramdisk.js';
 
 const storeFile = path.join(ramPath, 'vector_store.json');
@@ -51,8 +49,12 @@ async function readDocumentText(file) {
 
   if (ext === '.pdf') {
     try {
+      const parser = await loadPdfParser();
+      if (!parser) {
+        return '';
+      }
       const buffer = await fs.readFile(absolute);
-      const data = await pdfParse(buffer);
+      const data = await parser(buffer);
       return data.text || '';
     } catch (err) {
       console.error(`Failed to parse PDF ${file}:`, err);
@@ -61,6 +63,20 @@ async function readDocumentText(file) {
   }
 
   return fs.readFile(absolute, 'utf-8');
+}
+
+let pdfParserPromise;
+
+async function loadPdfParser() {
+  if (!pdfParserPromise) {
+    pdfParserPromise = import('pdf-parse')
+      .then((mod) => mod.default ?? mod)
+      .catch((err) => {
+        console.warn('PDF parsing unavailable:', err?.message || err);
+        return null;
+      });
+  }
+  return pdfParserPromise;
 }
 
 async function embedText(text) {

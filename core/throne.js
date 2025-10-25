@@ -1,5 +1,7 @@
-import { spawnSeat } from './dispatcher.js';
-import { getSeatConfig, getSeats } from './seats.js';
+import fs from 'fs';
+import path from 'path';
+import { callModel } from './dispatcher.js';
+import { spawnSeat as invokeSeat, getSeatConfig, getSeats } from './seats.js';
 import { loadBubble, saveBubble, mergeBubble } from '../memory/bubbles.js';
 import { initRamdisk } from './ramdisk.js';
 import { searchDocs } from '../memory/vectorCache.js';
@@ -7,9 +9,10 @@ import { summarize, reconcile } from './thinker.js';
 import { saveSession } from './continuum.js';
 import { saveContinuumState } from './continuum_recall.js';
 import { initHarmony, tuneHarmony, dominantSeat, getHarmonicState } from './harmony.js';
+import { appendSeatTurn, getSeatHistory, clearSeatHistory } from './recorder.js';
 import { recordDriftSnapshot } from './synaptic_drift.js';
 import { autoRotateIfTriggered } from './rotation.js';
-import { emitSeatUpdate, resetSeatStates } from './telemetry.js';
+import { emitSeatUpdate, resetSeatStates, broadcastNewSeed } from './telemetry.js';
 
 export const THRONE_LOG_LIMIT = 200;
 const SUMMARY_INTERVAL = 3;
@@ -27,6 +30,11 @@ let loopTimer = null;
 let loopRunning = false;
 let pendingQueue = [];
 let lastBaton = '';
+let seatTurns = 0;
+let epoch = 1;
+let lastThroneMessage = '';
+const ROUND_SIZE = 4;
+const LOG_DIR = path.join(process.cwd(), 'logs');
 
 export async function initThrone(win) {
   await initRamdisk();
@@ -38,7 +46,7 @@ export async function initThrone(win) {
   iteration = 0;
   pendingQueue = [];
   lastBaton = '';
-  resetSeatStates([...getSeats(), 'Throne']);
+  resetSeatStates(uniqueRoster());
   emitSeatUpdate('Throne', 'Idle');
 
   if (win) {
@@ -64,8 +72,12 @@ export async function startSession(topic, win) {
   iteration = 0;
   pendingQueue = [];
   lastBaton = seed;
+  seatTurns = 0;
+  lastThroneMessage = '';
+  globalThis.initialUserPrompt = seed;
   lastSummaryAt = null;
-  resetSeatStates([...getSeats(), 'Throne']);
+  clearSeatHistory();
+  resetSeatStates(uniqueRoster());
   emitSeatUpdate('Throne', 'Coordinating');
 
   appendToThroneLog([`Throne Session Topic: ${seed}`]);
@@ -82,14 +94,17 @@ export function stopSession(win, { silent = false } = {}) {
   pendingQueue = [];
   lastBaton = '';
   iteration = 0;
+  seatTurns = 0;
+  lastThroneMessage = '';
   sessionTopic = '';
   lastSummaryAt = null;
+  clearSeatHistory();
   if (loopTimer) {
     clearTimeout(loopTimer);
     loopTimer = null;
   }
   activeSeat = 'Idle';
-  resetSeatStates([...getSeats(), 'Throne']);
+  resetSeatStates(uniqueRoster());
   if (win) {
     win.webContents.send('seat-change', 'Idle');
     if (!silent) {
@@ -154,6 +169,76 @@ function scheduleCouncilLoop(win, delay = SESSION_INTERVAL_MS) {
     clearTimeout(loopTimer);
   }
   loopTimer = setTimeout(() => runCouncilLoop(win), Math.max(0, delay));
+}
+
+async function onSeatComplete(seatName, _msg, win) {
+  seatTurns += 1;
+  if (seatTurns < ROUND_SIZE) {
+    return;
+  }
+  try {
+    await throneReview(win);
+  } catch (err) {
+    console.error('Throne review error:', err);
+    if (win) {
+      emitSystemLog(win, `Throne review error: ${err.message || err}`);
+    }
+  }
+}
+
+async function throneReview(win) {
+  const recent = getSeatHistory(ROUND_SIZE);
+  if (!recent.length) {
+    return;
+  }
+
+  const payload = {
+    userSeed: globalThis.initialUserPrompt || sessionTopic,
+    throneLast: lastThroneMessage,
+    seatSnippets: recent
+  };
+
+  const config = getSeatConfig('Throne') || {};
+  const messages = [
+    {
+      role: 'system',
+      content: 'You are the Throne of the Council. Review the recent seat transcripts and craft the next directive for the Council to explore.'
+    },
+    { role: 'user', content: JSON.stringify(payload, null, 2) }
+  ];
+
+  const response = await callModel({
+    model: config.model || 'llama3-groq-tool-use:8b',
+    messages
+  });
+
+  lastThroneMessage = response.text;
+  appendToThroneLog([`Throne Review: ${response.text}`]);
+  if (win) {
+    win.webContents.send('council-response', `Throne: ${response.text}`);
+  }
+
+  const file = saveEpoch(recent, response.text);
+  await recordDriftSnapshot(getHarmonicState());
+  broadcastNewSeed(response.text);
+  clearSeatHistory();
+  seatTurns = 0;
+  pendingQueue.push(response.text);
+  lastBaton = response.text;
+
+  console.log(`[Cycle] Throne Review completed → ${file}`);
+}
+
+function saveEpoch(transcripts, throneText) {
+  if (!Array.isArray(transcripts)) {
+    return '';
+  }
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+  const file = path.join(LOG_DIR, `epoch-${String(epoch).padStart(3, '0')}.json`);
+  const data = { transcripts, throneText, timestamp: Date.now() };
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  epoch += 1;
+  return file;
 }
 
 export async function runCouncilLoop(win) {
@@ -222,10 +307,12 @@ export async function runCouncilLoop(win) {
       const prompt = buildPrompt({ topic: sessionTopic, baton, memory: bubble, rag, role, iteration });
       const weight = harmonic.weights?.[seatName] ?? 1.0;
       const weightedPrompt = `${prompt}\n[Resonance Weight:${weight.toFixed(2)}]`;
-      const reply = await spawnSeat(role, weightedPrompt, model);
+      const seatResult = await invokeSeat(role, weightedPrompt, { modelOverride: model });
+      const reply = seatResult.text;
       const message = `${role}: ${reply}`;
 
       saveBubble(seatName, reply);
+      appendSeatTurn(role, reply);
       appendToThroneLog([message]);
       turnLog.push(message);
 
@@ -233,7 +320,7 @@ export async function runCouncilLoop(win) {
         win.webContents.send('council-response', message);
       }
 
-      await handleCouncilMessage({ win, seatName: role, message });
+      await handleCouncilMessage({ win, seatName: role, reply, persona: seatResult.persona, message });
 
       lastBaton = reply || baton;
     }
@@ -294,6 +381,12 @@ function getAllBubbles() {
   return transcripts;
 }
 
+function uniqueRoster() {
+  const roster = new Set(getSeats());
+  roster.add('Throne');
+  return Array.from(roster);
+}
+
 function buildPrompt({ topic, baton, memory, rag, role, iteration: turn }) {
   const memoryTail = Array.isArray(memory) && memory.length ? memory.slice(-5).join('\n') : 'No prior memory.';
   const batonText = baton || `Continue reflecting on ${topic}.`;
@@ -321,9 +414,10 @@ function emitSystemLog(win, text) {
   win.webContents.send('system-log', `[${stamp}] ${text}`);
 }
 
-async function handleCouncilMessage({ win, seatName, message }) {
-  emitSeatUpdate(seatName, 'Idle');
-  await autoRotateIfTriggered(message, {
+async function handleCouncilMessage({ win, seatName, reply, persona, message }) {
+  emitSeatUpdate(seatName, 'Idle', { icon: persona?.icon });
+  await onSeatComplete(seatName, reply, win);
+  await autoRotateIfTriggered(message || reply, {
     scheduleNextTurn: () => scheduleCouncilLoop(win, 0)
   });
 }

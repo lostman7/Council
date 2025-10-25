@@ -1,34 +1,29 @@
-import fetch from 'node-fetch';
-import { getSeatConfig } from './seats.js';
+const OLLAMA_CHAT_URL = 'http://localhost:11434/api/chat';
 
-export async function spawnSeat(role, prompt, explicitModel) {
-  const config = getSeatConfig(role) || {};
-  const model = explicitModel && explicitModel.trim()
-    ? explicitModel.trim()
-    : config.model || 'llama3.2:3b';
-
-  const body = {
-    model,
-    stream: false,
-    messages: [
-      { role: 'system', content: `You are the ${role} of the Council.` },
-      { role: 'user', content: prompt }
-    ]
-  };
+export async function callModel({ model, messages, stream = false }) {
+  if (!model) {
+    throw new Error('Model name is required for callModel');
+  }
+  if (!Array.isArray(messages) || !messages.length) {
+    throw new Error('Messages required for callModel');
+  }
 
   try {
-    const res = await fetch('http://localhost:11434/api/chat', {
+    const res = await fetch(OLLAMA_CHAT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify({ model, stream, messages })
     });
+
     if (!res.ok) {
-      throw new Error(`Seat request failed with status ${res.status}`);
+      throw new Error(`Model request failed with status ${res.status}`);
     }
+
     const data = await res.json();
-    return data.message?.content || '(no reply)';
+    const text = data?.message?.content || '(no reply)';
+    return { text, raw: data, model };
   } catch (err) {
-    console.error('Seat spawn error:', err);
-    return '(seat offline)';
+    console.error('Model invocation error:', err);
+    return { text: '(seat offline)', raw: null, model };
   }
 }

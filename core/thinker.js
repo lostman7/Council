@@ -1,4 +1,3 @@
-import fetch from 'node-fetch';
 import { saveBubble } from '../memory/bubbles.js';
 
 const THINKER_MODEL = 'deepscaler:1.5b';
