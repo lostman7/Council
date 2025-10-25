@@ -1,12 +1,11 @@
 import fetch from 'node-fetch';
-import { pickModel, refreshPool } from './pool.js';
+import { getSeatConfig } from './seats.js';
 
-let lastPoolCheck = 0;
-const POOL_CHECK_INTERVAL_MS = 15 * 1000;
-
-export async function spawnSeat(role, prompt, modelOverride) {
-  await ensurePool();
-  const model = modelOverride && modelOverride.trim() ? modelOverride.trim() : pickModel(role);
+export async function spawnSeat(role, prompt, explicitModel) {
+  const config = getSeatConfig(role) || {};
+  const model = explicitModel && explicitModel.trim()
+    ? explicitModel.trim()
+    : config.model || 'llama3.2:3b';
 
   const body = {
     model,
@@ -31,13 +30,5 @@ export async function spawnSeat(role, prompt, modelOverride) {
   } catch (err) {
     console.error('Seat spawn error:', err);
     return '(seat offline)';
-  }
-}
-
-async function ensurePool() {
-  const now = Date.now();
-  if (now - lastPoolCheck > POOL_CHECK_INTERVAL_MS) {
-    await refreshPool();
-    lastPoolCheck = now;
   }
 }

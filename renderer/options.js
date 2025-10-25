@@ -1,67 +1,70 @@
-const drawer = document.createElement('div');
-drawer.id = 'optionsDrawer';
-drawer.classList.add('hidden');
-drawer.innerHTML = `
-  <div class="options-header">
-    <h3>Council Seats</h3>
-    <button id="closeOptionsDrawer" type="button">×</button>
-  </div>
-  <div id="seatList"></div>
-`;
+// renderer/options.js
+// Populates the options drawer from main and lets you change models.
 
-document.body.appendChild(drawer);
+const optionsBtn = document.getElementById('optionsBtn');
 
-const seatList = drawer.querySelector('#seatList');
-const closeBtn = drawer.querySelector('#closeOptionsDrawer');
-
-closeBtn.addEventListener('click', () => {
+let drawer;
+function ensureDrawer() {
+  if (drawer) return drawer;
+  drawer = document.createElement('div');
+  drawer.id = 'optionsDrawer';
   drawer.classList.add('hidden');
-});
-
-drawer.addEventListener('change', (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement) || target.tagName !== 'INPUT') return;
-  const seatName = target.dataset.seat;
-  const model = target.value.trim();
-  if (!seatName || !model) return;
-  window.CouncilAPI?.send('update-seat', { name: seatName, model });
-});
-
-if (window.CouncilAPI?.on) {
-  window.CouncilAPI.on('init-seats', (seats) => {
-    renderSeatList(seats);
-  });
+  drawer.innerHTML = `
+    <div class="options-header">
+      <h3>Council Options</h3>
+      <button id="closeOptionsDrawer">×</button>
+    </div>
+    <div id="seatList"></div>
+  `;
+  document.body.appendChild(drawer);
+  document.getElementById('closeOptionsDrawer').onclick = () => drawer.classList.add('hidden');
+  return drawer;
 }
 
-function renderSeatList(seats) {
-  if (!seatList) return;
-  seatList.innerHTML = '';
-  if (!seats || typeof seats !== 'object') {
-    seatList.textContent = 'No seats configured.';
-    return;
-  }
+optionsBtn.onclick = () => {
+  ensureDrawer();
+  drawer.classList.toggle('hidden');
+  window.CouncilAPI.getSeats();
+};
 
-  Object.entries(seats).forEach(([name, cfg]) => {
+// Render the seat list when main replies
+window.CouncilAPI.on('seats-list', (all) => {
+  ensureDrawer();
+  const container = drawer.querySelector('#seatList');
+  container.innerHTML = '';
+  Object.entries(all).forEach(([name, cfg]) => {
     const row = document.createElement('div');
     row.className = 'seat-row';
-    const label = document.createElement('label');
-    label.textContent = `${name} (${cfg?.role ?? name})`;
-
-    const input = document.createElement('input');
-    input.value = cfg?.model ?? '';
-    input.dataset.seat = name;
-    input.placeholder = 'model name';
-
-    row.append(label, input);
-    seatList.appendChild(row);
+    row.innerHTML = `
+      <label>${name}</label>
+      <input type="text" value="${cfg?.model || ''}" data-seat="${name}" />
+    `;
+    container.appendChild(row);
   });
-}
 
-window.CouncilOptions = {
-  toggle() {
-    drawer.classList.toggle('hidden');
-  },
-  hide() {
-    drawer.classList.add('hidden');
+  container.addEventListener(
+    'change',
+    (e) => {
+      const t = e.target;
+      if (t && t.matches('input[data-seat]')) {
+        window.CouncilAPI.updateSeat(t.dataset.seat, t.value.trim());
+      }
+    },
+    { once: true }
+  );
+});
+
+// Toast when seat model updates
+window.CouncilAPI.on('seats-updated', ({ name, model }) => {
+  const note = document.createElement('div');
+  note.className = 'log-entry';
+  note.textContent = `Seat updated: ${name} → ${model}`;
+  let log = document.getElementById('logDrawer');
+  if (!log) {
+    log = document.createElement('div');
+    log.id = 'logDrawer';
+    log.innerHTML = `<div class="log-title">System Log</div><div class="log-content"></div>`;
+    document.body.appendChild(log);
   }
-};
+  log.querySelector('.log-content').appendChild(note);
+});

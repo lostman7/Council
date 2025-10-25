@@ -51,8 +51,6 @@ app.whenReady().then(async () => {
 
   if (win) {
     win.webContents.once('did-finish-load', () => {
-      const seatMap = seats.getSeatMap();
-      win.webContents.send('init-seats', seatMap);
       if (previousEchoes) {
         win.webContents.send(
           'council-response',
@@ -61,6 +59,20 @@ app.whenReady().then(async () => {
       }
     });
   }
+
+  setTimeout(() => {
+    if (!win) return;
+    const starter =
+      'Flowfield: begin council on unification protocol; Physicist then Engineer, then summarize.';
+    win.webContents.send('council-response', `Throne: Seeding — "${starter}"`);
+    throne.startSession(starter, win).catch((e) => {
+      console.error('auto seed error:', e);
+      win.webContents.send(
+        'council-response',
+        `Throne: (auto-seed error) ${e.message}`
+      );
+    });
+  }, 3500);
 });
 
 app.on('window-all-closed', () => {
@@ -77,26 +89,48 @@ ipcMain.on('saveSettings', (_, config) => {
   }
 });
 
-ipcMain.on('seed', async (_, msg) => {
-  await throne.handleSeed(msg, win);
+ipcMain.on('start-session', async (_evt, topic) => {
+  try {
+    await throne.startSession(topic, win);
+  } catch (e) {
+    console.error('start-session error:', e);
+    if (win) {
+      win.webContents.send(
+        'council-response',
+        `Throne: (error starting session) ${e.message}`
+      );
+    }
+  }
 });
 
-ipcMain.on('start-session', async (_, topic) => {
-  await throne.startSession(topic, win);
+ipcMain.on('seed', async (_evt, text) => {
+  try {
+    await throne.handleSeed(text, win);
+  } catch (e) {
+    console.error('seed error:', e);
+    if (win) {
+      win.webContents.send('council-response', `Throne: (seed error) ${e.message}`);
+    }
+  }
 });
 
-ipcMain.on('stop-session', () => {
-  throne.stopSession(win);
+ipcMain.on('get-seats', (evt) => {
+  const all = seats.getSeats().reduce((acc, name) => {
+    acc[name] = seats.getSeatConfig(name);
+    return acc;
+  }, {});
+  evt.sender.send('seats-list', all);
 });
 
-ipcMain.on('update-seat', (_, { name, model }) => {
-  const updated = seats.updateSeatModel(name, model);
-  if (!updated) return;
-  if (win) {
-    const seatMap = seats.getSeatMap();
-    win.webContents.send('init-seats', seatMap);
-    const stamp = new Date().toLocaleTimeString();
-    win.webContents.send('system-log', `[${stamp}] Seat ${name} model set to ${model}`);
+ipcMain.on('update-seat', (_evt, { name, model }) => {
+  try {
+    const updated = seats.updateSeatModel(name, model);
+    if (!updated) return;
+    if (win) {
+      win.webContents.send('seats-updated', { name, model });
+    }
+  } catch (e) {
+    console.error('update-seat error:', e);
   }
 });
 

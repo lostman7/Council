@@ -147,7 +147,7 @@ function scheduleCouncilLoop(win, delay = SESSION_INTERVAL_MS) {
   loopTimer = setTimeout(() => runCouncilLoop(win), Math.max(0, delay));
 }
 
-async function runCouncilLoop(win) {
+export async function runCouncilLoop(win) {
   if (!sessionActive) {
     return;
   }
