@@ -27,7 +27,11 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer/index.html'));
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  createWindow();
+  await throne.initThrone(win);
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
@@ -38,9 +42,6 @@ ipcMain.on('saveSettings', (_, config) => {
   console.log('Council settings saved:', config);
 });
 
-ipcMain.on('seed', (_, msg) => {
-  throne.handleSeed(msg, win);
-  if (win) {
-    win.webContents.send('seat-change', 'Physicist');
-  }
+ipcMain.on('seed', async (_, msg) => {
+  await throne.handleSeed(msg, win);
 });

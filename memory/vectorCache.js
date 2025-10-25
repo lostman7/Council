@@ -1,3 +1,4 @@
-export function primeVectorCache() {
-  console.log('Vector cache placeholder primed.');
+export function searchDocs(query) {
+  console.log('Vector search placeholder:', query);
+  return [];
 }

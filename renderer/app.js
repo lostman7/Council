@@ -18,8 +18,14 @@ function addMessage(sender, text, side) {
   msg.scrollIntoView({ behavior: "smooth", block: "end" });
 }
 
+function setCouncilDot(state) {
+  councilDot.classList.remove("red", "green");
+  councilDot.classList.add(state === "active" ? "green" : "red");
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   addMessage("Throne", "Council loaded. Awaiting topic...", "left");
+  setCouncilDot("idle");
 });
 
 if (window.CouncilAPI?.on) {
@@ -29,8 +35,7 @@ if (window.CouncilAPI?.on) {
 
   window.CouncilAPI.on("seat-change", (role) => {
     seatStatus.textContent = `Active Seat: ${role}`;
-    councilDot.classList.remove("red", "green");
-    councilDot.classList.add("green");
+    setCouncilDot(role === "Idle" ? "idle" : "active");
   });
 }
 
