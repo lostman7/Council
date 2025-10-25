@@ -1,0 +1,145 @@
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background: #0b0c0f;
+  color: #e3e3e3;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* --- Top bar --- */
+#topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 20px;
+  background: #14161a;
+  border-bottom: 1px solid #222;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 6px;
+}
+
+.red {
+  background: #c33;
+}
+
+.green {
+  background: #3c3;
+}
+
+#optionsBtn {
+  cursor: pointer;
+  font-size: 18px;
+}
+
+#chat {
+  display: flex;
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.column {
+  flex: 1;
+  padding: 0 10px;
+  overflow-y: auto;
+}
+
+.message {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  max-width: 85%;
+  word-wrap: break-word;
+}
+
+.left .message {
+  background: #1c1f24;
+}
+
+.right .message {
+  background: #23262b;
+}
+
+#inputBar {
+  display: flex;
+  border-top: 1px solid #222;
+  background: #14161a;
+  padding: 10px;
+}
+
+#seedInput {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: #1c1f24;
+  color: #e3e3e3;
+  border-radius: 4px;
+}
+
+#sendBtn {
+  margin-left: 8px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 4px;
+  background: #2a2d33;
+  color: #e3e3e3;
+  cursor: pointer;
+}
+
+/* --- Options panel --- */
+#optionsPanel {
+  position: absolute;
+  top: 42px;
+  right: 10px;
+  width: 320px;
+  background: #1c1f24;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 15px;
+  color: #e3e3e3;
+  z-index: 100;
+}
+
+.hidden {
+  display: none;
+}
+
+#optionsPanel label {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.9em;
+}
+
+#optionsPanel select,
+#optionsPanel input {
+  width: 100%;
+  padding: 5px;
+  margin-top: 4px;
+  border: none;
+  border-radius: 4px;
+  background: #23262b;
+  color: #e3e3e3;
+}
+
+.panelButtons {
+  margin-top: 12px;
+  text-align: right;
+}
+
+.panelButtons button {
+  margin-left: 8px;
+  padding: 8px 12px;
+  background: #2a2d33;
+  border: none;
+  border-radius: 4px;
+  color: #e3e3e3;
+  cursor: pointer;
+}
