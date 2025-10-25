@@ -9,10 +9,18 @@ const chainDepth = 3;
 export const THRONE_LOG_LIMIT = 200;
 const SUMMARY_CHANCE = 0.2;
 
+let activeSeat = 'Idle';
+let throneLog = [];
+let contextTokens = 0;
+let lastSummaryAt = null;
+
 export async function initThrone(win) {
   await initRamdisk();
+  syncThroneLog();
+  activeSeat = 'Idle';
   if (win) {
     win.webContents.send('seat-change', 'Idle');
+    emitSystemLog(win, 'Throne initialized and standing by.');
   }
   console.log('Throne initialized.');
 }
@@ -28,17 +36,21 @@ export async function handleSeed(msg, win) {
     return;
   }
 
-  mergeBubble('Throne', [`User: ${seed}`], THRONE_LOG_LIMIT);
+  appendToThroneLog([`User: ${seed}`]);
+  activeSeat = seatsToRun[0];
   if (win) {
-    win.webContents.send('seat-change', seatsToRun[0]);
+    win.webContents.send('seat-change', activeSeat);
+    emitSystemLog(win, `New topic received. Chaining seats: ${seatsToRun.join(' → ')}.`);
   }
 
   let baton = seed;
   const turnLog = [`User: ${seed}`];
 
   for (const role of seatsToRun) {
+    activeSeat = role;
     if (win) {
       win.webContents.send('seat-change', role);
+      emitSystemLog(win, `Spawning seat: ${role}`);
     }
 
     const bubble = loadBubble(role);
@@ -50,7 +62,7 @@ export async function handleSeed(msg, win) {
     const message = `${role}: ${reply}`;
 
     saveBubble(role, reply);
-    mergeBubble('Throne', [message], THRONE_LOG_LIMIT);
+    appendToThroneLog([message]);
     turnLog.push(message);
 
     if (win) {
@@ -60,21 +72,67 @@ export async function handleSeed(msg, win) {
     baton = reply;
   }
 
+  activeSeat = 'Idle';
   if (win) {
     win.webContents.send('seat-change', 'Idle');
   }
 
   if (turnLog.length && Math.random() < SUMMARY_CHANCE) {
     const summary = await summarize('Throne', turnLog);
-    const thinkerMessage = `Optical Thinker: ${summary}`;
-    mergeBubble('Throne', [thinkerMessage], THRONE_LOG_LIMIT);
-    if (win) {
-      win.webContents.send('council-response', thinkerMessage);
-    }
+    await recordSummary(summary, { win, broadcast: true });
   }
+}
+
+export async function recordSummary(summary, { win, broadcast = false } = {}) {
+  const thinkerMessage = `Optical Thinker: ${summary}`;
+  appendToThroneLog([thinkerMessage]);
+  lastSummaryAt = new Date();
+  if (broadcast && win) {
+    win.webContents.send('council-response', thinkerMessage);
+  }
+  if (win) {
+    emitSystemLog(win, 'Optical Thinker updated the Throne log.');
+  }
+  return thinkerMessage;
+}
+
+export function getThroneMetrics() {
+  return {
+    activeSeat,
+    contextTokens,
+    lastSummaryAt: lastSummaryAt ? lastSummaryAt.toISOString() : null
+  };
+}
+
+export function getThroneLog(limit = 30) {
+  if (!limit || limit >= throneLog.length) {
+    return [...throneLog];
+  }
+  return throneLog.slice(-limit);
 }
 
 function buildPrompt(input, bubble, rag) {
   const memory = bubble.slice(-5).join('\n') || 'No prior memory.';
   return `Flowfield Context:\n${rag}\n\nRecent Memory:\n${memory}\n\nUser:${input}`;
+}
+
+function appendToThroneLog(entries) {
+  mergeBubble('Throne', entries, THRONE_LOG_LIMIT);
+  syncThroneLog();
+}
+
+function syncThroneLog() {
+  throneLog = loadBubble('Throne');
+  contextTokens = estimateTokens(throneLog.join('\n'));
+}
+
+function estimateTokens(text) {
+  if (!text) return 0;
+  return Math.ceil(text.length / 4);
+}
+
+function emitSystemLog(win, text) {
+  if (!win) return;
+  const stamp = new Date().toLocaleTimeString();
+  win.webContents.send('system-log', `[${stamp}] ${text}`);
 }

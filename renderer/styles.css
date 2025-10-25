@@ -6,6 +6,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  box-sizing: border-box;
+  padding-bottom: 90px;
 }
 
 /* --- Top bar --- */
@@ -73,6 +75,7 @@ body {
   border-top: 1px solid #222;
   background: #14161a;
   padding: 10px;
+  margin-bottom: 48px;
 }
 
 #seedInput {
@@ -142,4 +145,91 @@ body {
   border-radius: 4px;
   color: #e3e3e3;
   cursor: pointer;
+}
+
+/* --- HUD + Log Drawer --- */
+#hud {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #0f1116;
+  color: #8fffd1;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.85em;
+  padding: 6px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid #333;
+  opacity: 0.92;
+  z-index: 120;
+}
+
+#hud span {
+  white-space: nowrap;
+}
+
+.hud-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.hud-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#hud button {
+  padding: 4px 10px;
+  border: 1px solid #39404f;
+  border-radius: 4px;
+  background: #1f2229;
+  color: #8fffd1;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+#hud button:hover {
+  background: #2b303a;
+}
+
+#logDrawer {
+  position: fixed;
+  left: 10px;
+  right: 10px;
+  bottom: 44px;
+  background: #10131a;
+  border: 1px solid #2c3240;
+  border-radius: 6px;
+  padding: 10px 12px;
+  max-height: 200px;
+  overflow: hidden;
+  color: #cfd7ff;
+  z-index: 110;
+}
+
+.log-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
+
+.log-content {
+  max-height: 150px;
+  overflow-y: auto;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8em;
+}
+
+.log-entry {
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(143, 255, 209, 0.1);
+}
+
+.log-entry:last-child {
+  border-bottom: none;
 }

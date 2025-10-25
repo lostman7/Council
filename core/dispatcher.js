@@ -1,12 +1,12 @@
 import fetch from 'node-fetch';
+import { pickModel, refreshPool } from './pool.js';
+
+let lastPoolCheck = 0;
+const POOL_CHECK_INTERVAL_MS = 15 * 1000;
 
 export async function spawnSeat(role, prompt) {
-  const modelMap = {
-    Physicist: 'llama3.2:3b',
-    Engineer: 'cogito:3b',
-    Linguist: 'qwen3:0.6b'
-  };
-  const model = modelMap[role] || 'llama3.2:3b';
+  await ensurePool();
+  const model = pickModel(role);
 
   const body = {
     model,
@@ -23,10 +23,21 @@ export async function spawnSeat(role, prompt) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
+    if (!res.ok) {
+      throw new Error(`Seat request failed with status ${res.status}`);
+    }
     const data = await res.json();
     return data.message?.content || '(no reply)';
   } catch (err) {
     console.error('Seat spawn error:', err);
     return '(seat offline)';
+  }
+}
+
+async function ensurePool() {
+  const now = Date.now();
+  if (now - lastPoolCheck > POOL_CHECK_INTERVAL_MS) {
+    await refreshPool();
+    lastPoolCheck = now;
   }
 }
