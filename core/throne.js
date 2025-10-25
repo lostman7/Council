@@ -11,6 +11,7 @@ import {
 import { loadBubble, saveBubble, mergeBubble } from '../memory/bubbles.js';
 import { initRamdisk } from './ramdisk.js';
 import { searchDocs } from '../memory/vectorCache.js';
+import { searchEmbeddings } from './vectorOps.js';
 import { summarize, reconcile } from './thinker.js';
 import { saveSession } from './continuum.js';
 import { saveContinuumState } from './continuum_recall.js';
@@ -325,7 +326,26 @@ export async function runCouncilLoop(win) {
         rag = 'Flowfield search unavailable.';
       }
 
-      const prompt = buildPrompt({ topic: sessionTopic, baton, memory: bubble, rag, role, iteration });
+      let vectorRecall = '';
+      try {
+        const matches = await searchEmbeddings(`${sessionTopic}\n${baton}`);
+        vectorRecall = matches.length
+          ? matches.map((entry) => entry.text).join('\n---\n')
+          : '';
+      } catch (err) {
+        console.error('Embedding recall error:', err);
+      }
+
+      const ragSections = [];
+      if (rag) {
+        ragSections.push(rag);
+      }
+      if (vectorRecall) {
+        ragSections.push(`Vector Recall:\n${vectorRecall}`);
+      }
+      const combinedRag = ragSections.length ? ragSections.join('\n---\n') : 'No contextual recall available.';
+
+      const prompt = buildPrompt({ topic: sessionTopic, baton, memory: bubble, rag: combinedRag, role, iteration });
       const weight = harmonic.weights?.[seatName] ?? 1.0;
       const weightedPrompt = `${prompt}\n[Resonance Weight:${weight.toFixed(2)}]`;
       const seatResult = await invokeSeat(role, weightedPrompt, { modelOverride: model });

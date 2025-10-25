@@ -2,12 +2,15 @@ import fs from 'fs-extra';
 import path from 'path';
 import { ramPath } from '../core/ramdisk.js';
 import { EMBEDDING_CACHE_FILE, logDispatcherError } from '../core/dispatcher.js';
+import {
+  embedText as persistableEmbed,
+  ensureVectorOpsReady
+} from '../core/vectorOps.js';
 
 const storeFile = path.join(ramPath, 'vector_store.json');
 let vectorStore = [];
 let docsRoot = path.resolve('./flowfield_docs');
 const SUPPORTED_EXTENSIONS = new Set(['.txt', '.md', '.pdf']);
-const EMBED_CANDIDATES = ['qwen3-embedding:0.6b', 'mxbai-embed-large:latest'];
 
 let embeddingCache = {};
 
@@ -32,6 +35,7 @@ async function persistEmbeddingCache() {
 loadEmbeddingCache();
 
 export async function initVectorCache(docsPath = './flowfield_docs') {
+  await ensureVectorOpsReady();
   docsRoot = path.resolve(docsPath);
   await fs.ensureDir(docsRoot);
 
@@ -109,32 +113,18 @@ async function embedText(text) {
     return embeddingCache[key];
   }
 
-  for (const model of EMBED_CANDIDATES) {
-    try {
-      const res = await fetch('http://localhost:11434/api/embeddings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, input: text })
-      });
-
-      if (!res.ok) {
-        throw new Error(`Status ${res.status}`);
-      }
-
-      const data = await res.json();
-      const embedding = Array.isArray(data?.embedding) ? data.embedding : [];
-      if (embedding.length) {
-        embeddingCache[key] = embedding;
-        await persistEmbeddingCache();
-        return embedding;
-      }
-    } catch (err) {
-      console.warn(`[Embedding] ${model} failed → ${err.message}`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+  try {
+    const embedding = await persistableEmbed(text);
+    if (Array.isArray(embedding) && embedding.length) {
+      embeddingCache[key] = embedding;
+      await persistEmbeddingCache();
+      return embedding;
     }
+  } catch (err) {
+    console.warn(`[Embedding] Failed to embed snippet → ${err.message}`);
+    logDispatcherError(err, { sample: text.slice(0, 120) });
   }
 
-  logDispatcherError('Embedding failure', { sample: text.slice(0, 120) });
   return [];
 }
 

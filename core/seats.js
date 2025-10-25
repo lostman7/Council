@@ -7,6 +7,7 @@ import { trace, traceLog } from './trace.js';
 import { loadPersona } from './personas.js';
 import { loadSeatRegistry, saveSeatPreferences, DEFAULT_MODELS } from './seatRegistry.js';
 import { getConfig, saveConfig } from './config.js';
+import { cooldown, loadVectorConfig } from './vectorOps.js';
 
 const FALLBACK_MODEL = 'llama3.2:3b';
 
@@ -277,10 +278,14 @@ export function getAvailableModel(requested) {
   return requested;
 }
 
-const MODEL_COOLDOWN_MS = 30_000;
-
 export async function seatCycleLoop(seats, iterator) {
   const entries = Object.entries(seats || {});
+  const vectorConfig = await loadVectorConfig().catch(() => null);
+  const configuredCooldownSeconds = Number(vectorConfig?.cooldownDelay);
+  const cooldownMs = Number.isFinite(configuredCooldownSeconds)
+    ? Math.max(0, configuredCooldownSeconds * 1000)
+    : 30_000;
+
   for (let index = 0; index < entries.length; index += 1) {
     const [seatName, data] = entries[index];
     const model = getAvailableModel(data?.model || null);
@@ -290,9 +295,8 @@ export async function seatCycleLoop(seats, iterator) {
     } else {
       await spawnSeat(seatName, data?.prompt || '', { modelOverride: model });
     }
-    if (MODEL_COOLDOWN_MS > 0 && index < entries.length - 1) {
-      traceLog(`[Cooldown] Waiting ${MODEL_COOLDOWN_MS / 1000}s before next model load`);
-      await new Promise((resolve) => setTimeout(resolve, MODEL_COOLDOWN_MS));
+    if (cooldownMs > 0 && index < entries.length - 1) {
+      await cooldown(cooldownMs);
     }
   }
   if (entries.length) {
