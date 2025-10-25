@@ -7,7 +7,7 @@ const storeFile = path.join(ramPath, 'vector_store.json');
 let vectorStore = [];
 let docsRoot = path.resolve('./flowfield_docs');
 const SUPPORTED_EXTENSIONS = new Set(['.txt', '.md', '.pdf']);
-const EMBED_CANDIDATES = ['qwen3-embedding:0.6b', 'mxbai-embed-large'];
+const EMBED_CANDIDATES = ['qwen3-embedding:0.6b', 'mxbai-embed-large:latest'];
 
 let embeddingCache = {};
 

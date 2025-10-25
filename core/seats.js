@@ -2,32 +2,55 @@
 // -------------------------------
 // Defines the Council seats, their models, and live update utilities.
 
-import fs from 'fs-extra';
-import path from 'path';
 import { callModel, listOllamaModels } from './dispatcher.js';
-import { trace } from './trace.js';
+import { trace, traceLog } from './trace.js';
 import { loadPersona } from './personas.js';
 import { loadSeatRegistry, saveSeatPreferences, DEFAULT_MODELS } from './seatRegistry.js';
+import { getConfig, saveConfig } from './config.js';
 
 const FALLBACK_MODEL = 'llama3.2:3b';
 
+export const MODEL_RUNTIME = {
+  throne: 'cogito:3b',
+  allowed: [
+    'tinydolphin:1.1b',
+    'deepseek-r1:1.5b',
+    'qwen2.5-coder:1.5b',
+    'qwen2.5-coder:0.5b',
+    'qwen3:1.7b',
+    'qwen3:0.6b',
+    'PhysicsObsession/sequoia-1b:latest',
+    'llama3.2:3b'
+  ],
+  embeddings: ['qwen3-embedding:0.6b', 'mxbai-embed-large:latest'],
+  blacklist: [
+    'omkarjava0103/gpt-oss-mini:omkar',
+    'llama3-groq-tool-use:8b',
+    'deepscaler:1.5b',
+    'gpt-oss:120b-cloud',
+    'glm-4.6:cloud'
+  ]
+};
+
+const MODEL_BLACKLIST = new Set(MODEL_RUNTIME.blacklist);
+
 const MODEL_POOLS = {
-  Physicist: ['deepseek-r1:1.5b', 'sequoia-1b', 'qwen3:1.7b'],
+  Physicist: ['deepseek-r1:1.5b', 'qwen3:1.7b', 'llama3.2:3b'],
   Engineer: ['qwen2.5-coder:1.5b', 'qwen2.5-coder:0.5b', 'tinydolphin:1.1b'],
-  Linguist: ['cogito:3b', 'gpt-oss-mini:2.0b', 'qwen3:0.6b'],
-  Thinker: ['llama3.2:3b', 'cogito:3b'],
-  Navigator: ['tinydolphin:1.1b', 'deepseek-r1:1.5b', 'qwen3:1.7b'],
-  Doctor: ['llama3.2:3b', 'deepseek-r1:1.5b', 'qwen3:1.7b'],
-  Surgeon: ['llama3.2:3b', 'glm-4.6:cloud', 'qwen3:1.7b'],
-  Machinist: ['qwen2.5-coder:1.5b', 'tinydolphin:1.1b', 'deepseek-r1:1.5b'],
-  Architect: ['glm-4.6:cloud', 'llama3.2:3b', 'qwen3:1.7b'],
-  Historian: ['qwen3-embedding:0.6b', 'llama3.2:3b', 'deepseek-r1:1.5b'],
-  Philosopher: ['glm-4.6:cloud', 'llama3.2:3b', 'qwen3:1.7b'],
-  Artist: ['cogito:3b', 'llama3.2:3b', 'qwen3:1.7b'],
-  Diplomat: ['deepscaler:1.5b', 'glm-4.6:cloud', 'qwen3:1.7b'],
-  Strategist: ['deepscaler:1.5b', 'llama3.2:3b', 'qwen3:1.7b'],
-  OpenMind: ['llama3.2:3b', 'deepseek-r1:1.5b', 'cogito:3b'],
-  Throne: ['llama3-groq-tool-use:8b']
+  Linguist: ['qwen3:0.6b', 'llama3.2:3b', 'PhysicsObsession/sequoia-1b:latest'],
+  Thinker: ['llama3.2:3b', 'qwen3:1.7b'],
+  Navigator: ['PhysicsObsession/sequoia-1b:latest', 'tinydolphin:1.1b', 'qwen3:0.6b'],
+  Doctor: ['llama3.2:3b', 'deepseek-r1:1.5b'],
+  Surgeon: ['deepseek-r1:1.5b', 'llama3.2:3b'],
+  Machinist: ['qwen2.5-coder:1.5b', 'qwen2.5-coder:0.5b', 'tinydolphin:1.1b'],
+  Architect: ['qwen3:1.7b', 'llama3.2:3b'],
+  Historian: ['qwen3:0.6b', 'llama3.2:3b'],
+  Philosopher: ['llama3.2:3b', 'qwen3:1.7b'],
+  Artist: ['tinydolphin:1.1b', 'qwen3:1.7b'],
+  Diplomat: ['llama3.2:3b', 'qwen3:0.6b'],
+  Strategist: ['deepseek-r1:1.5b', 'llama3.2:3b'],
+  OpenMind: ['llama3.2:3b', 'PhysicsObsession/sequoia-1b:latest'],
+  Throne: ['cogito:3b', 'llama3.2:3b']
 };
 
 const POOL_LOOKUP = Object.fromEntries(
@@ -36,8 +59,8 @@ const POOL_LOOKUP = Object.fromEntries(
 
 let seatConfigs = {
   Throne: {
-    model: 'llama3-groq-tool-use:8b',
-    defaultModel: 'llama3-groq-tool-use:8b',
+    model: 'cogito:3b',
+    defaultModel: 'cogito:3b',
     enabled: true,
     rotation: true,
     variants: []
@@ -46,11 +69,43 @@ let seatConfigs = {
 let initializationPromise = null;
 let initialized = false;
 
+async function applyActiveSeatOverrides() {
+  const config = await getConfig();
+  const activeSeats = config.activeSeats || {};
+  let changed = false;
+  for (const [name, enabled] of Object.entries(activeSeats)) {
+    if (!seatConfigs[name]) continue;
+    const flag = Boolean(enabled);
+    if (seatConfigs[name].enabled !== flag) {
+      seatConfigs[name].enabled = flag;
+      changed = true;
+    }
+  }
+  if (changed) {
+    traceLog('[Seat] Applied active seat overrides from config');
+  }
+}
+
+function buildActiveSeatMap() {
+  const map = {};
+  for (const [name, cfg] of Object.entries(seatConfigs)) {
+    map[name] = cfg.enabled !== false;
+  }
+  return map;
+}
+
+async function persistActiveSeatConfig() {
+  const activeSeats = buildActiveSeatMap();
+  await saveConfig({ activeSeats });
+}
+
 async function ensureInitialized() {
   if (initialized) return;
   if (!initializationPromise) {
-    initializationPromise = loadSeatRegistry().then((registry) => {
+    initializationPromise = loadSeatRegistry().then(async (registry) => {
       seatConfigs = registry;
+      await applyActiveSeatOverrides();
+      void persistActiveSeatConfig();
       initialized = true;
       trace('Seats', 'registry.loaded', { count: Object.keys(seatConfigs).length });
       return seatConfigs;
@@ -124,6 +179,7 @@ export function resetSeats(newMap = {}) {
     }
   }
   persistSeatPreferences();
+  void persistActiveSeatConfig();
 }
 
 export function updateSeatModel(name, model) {
@@ -151,6 +207,7 @@ export function updateSeatModel(name, model) {
     seatConfigs[name].poolIndex = 0;
   }
   persistSeatPreferences();
+  void persistActiveSeatConfig();
   trace('Seats', 'update', { seat: name, model: trimmed || null });
   console.log(`[Council] Seat updated: ${name} → ${model}`);
 }
@@ -168,7 +225,73 @@ export function setSeatEnabled(name, enabled) {
     seatConfigs[name].enabled = Boolean(enabled);
   }
   persistSeatPreferences();
+  void persistActiveSeatConfig();
   trace('Seats', 'enabled', { seat: name, enabled: Boolean(enabled) });
+}
+
+export async function unloadSeat(name) {
+  trace('Seat', 'unload', { seat: name });
+  if (!seatConfigs[name]) return;
+  delete seatConfigs[name].lastModel;
+}
+
+export async function filterActiveSeats(seatRegistry) {
+  const config = await getConfig();
+  const desired = config.activeSeats || {};
+  const active = {};
+
+  for (const [seat, data] of Object.entries(seatRegistry)) {
+    const enabled = desired[seat];
+    if (enabled === false) {
+      traceLog(`[Seat] ${seat} disabled (🔇)`);
+      await unloadSeat(seat);
+      continue;
+    }
+    active[seat] = data;
+  }
+
+  return active;
+}
+
+export function getAvailableModel(requested) {
+  const { allowed, throne } = MODEL_RUNTIME;
+  const fallback = allowed[0] || FALLBACK_MODEL;
+  if (!requested) {
+    return fallback;
+  }
+  if (MODEL_BLACKLIST.has(requested)) {
+    traceLog(`[Blacklist] ${requested} rejected`);
+    return fallback;
+  }
+  if (requested === throne) {
+    return requested;
+  }
+  if (!allowed.includes(requested)) {
+    traceLog(`[Fallback] ${requested} not whitelisted, selecting alternate`);
+    return fallback;
+  }
+  return requested;
+}
+
+const MODEL_COOLDOWN_MS = 30_000;
+
+export async function seatCycleLoop(seats, iterator) {
+  const entries = Object.entries(seats || {});
+  for (let index = 0; index < entries.length; index += 1) {
+    const [seatName, data] = entries[index];
+    const model = getAvailableModel(data?.model || null);
+    traceLog(`[Council] Spawning ${seatName} → ${model}`);
+    if (typeof iterator === 'function') {
+      await iterator(seatName, { ...data, model });
+    }
+    if (MODEL_COOLDOWN_MS > 0 && index < entries.length - 1) {
+      traceLog(`[Cooldown] Waiting ${MODEL_COOLDOWN_MS / 1000}s before next model load`);
+      await new Promise((resolve) => setTimeout(resolve, MODEL_COOLDOWN_MS));
+    }
+  }
+  if (entries.length) {
+    traceLog('[Cycle] All seats completed rotation.');
+  }
 }
 
 export function isSeatEnabled(name) {
@@ -311,14 +434,13 @@ export function pickModelForSeat(role) {
 }
 
 async function ensureModelChoice(role, candidate) {
-  let selected = candidate || DEFAULT_MODELS[role] || FALLBACK_MODEL;
+  let selected = getAvailableModel(candidate || DEFAULT_MODELS[role] || FALLBACK_MODEL);
 
   try {
     const available = await listOllamaModels();
     if (available.length && !available.includes(selected)) {
-      const fallback = available.includes(FALLBACK_MODEL)
-        ? FALLBACK_MODEL
-        : available[0] || FALLBACK_MODEL;
+      const fallbackCandidate = available.find((model) => !MODEL_BLACKLIST.has(model));
+      const fallback = getAvailableModel(fallbackCandidate || FALLBACK_MODEL);
       trace('Seat', 'model.fallback', { role, from: selected, to: fallback });
       console.warn(`[COUNCIL] Seat '${role}' model '${selected}' unavailable → ${fallback}`);
       selected = fallback;

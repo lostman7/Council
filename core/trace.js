@@ -31,3 +31,12 @@ export function logError(err, context = {}) {
   };
   fs.appendFileSync(file, JSON.stringify(payload) + '\n');
 }
+
+export function traceLog(message, extra = {}) {
+  const payload =
+    extra && typeof extra === 'object' && !Array.isArray(extra) ? { ...extra } : { detail: extra };
+  trace('Log', 'message', { message: String(message), ...payload });
+  if (process.env.COUNCIL_TRACE_SILENT !== '1') {
+    console.log(message);
+  }
+}

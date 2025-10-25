@@ -5,22 +5,22 @@ import path from 'path';
 const PERSONA_DIR = path.join(process.cwd(), 'personas');
 const CONFIG_PATH = path.join(os.homedir(), '.council_config.json');
 export const DEFAULT_MODELS = {
-  Physicist: 'llama3.2:3b',
-  Engineer: 'deepscaler:1.5b',
-  Linguist: 'cogito:3b',
-  Thinker: 'qwen:1.8b',
-  Navigator: 'glm-4.6:cloud',
+  Physicist: 'deepseek-r1:1.5b',
+  Engineer: 'qwen2.5-coder:1.5b',
+  Linguist: 'qwen3:0.6b',
+  Thinker: 'llama3.2:3b',
+  Navigator: 'PhysicsObsession/sequoia-1b:latest',
   Doctor: 'llama3.2:3b',
-  Surgeon: 'llama3.2:3b',
-  Machinist: 'qwen2.5-coder:1.5b',
-  Architect: 'glm-4.6:cloud',
-  Historian: 'qwen3-embedding:0.6b',
-  Philosopher: 'glm-4.6:cloud',
-  Artist: 'cogito:3b',
-  Diplomat: 'deepscaler:1.5b',
-  Strategist: 'deepscaler:1.5b',
+  Surgeon: 'deepseek-r1:1.5b',
+  Machinist: 'qwen2.5-coder:0.5b',
+  Architect: 'qwen3:1.7b',
+  Historian: 'qwen3:0.6b',
+  Philosopher: 'llama3.2:3b',
+  Artist: 'tinydolphin:1.1b',
+  Diplomat: 'llama3.2:3b',
+  Strategist: 'deepseek-r1:1.5b',
   OpenMind: 'llama3.2:3b',
-  Throne: 'llama3-groq-tool-use:8b'
+  Throne: 'cogito:3b'
 };
 
 async function readConfigFile() {

@@ -1,6 +1,6 @@
 import { saveBubble } from '../memory/bubbles.js';
 
-const THINKER_MODEL = 'deepscaler:1.5b';
+const THINKER_MODEL = 'llama3.2:3b';
 
 export async function summarize(role, log) {
   const transcript = Array.isArray(log) ? log.filter(Boolean) : [];

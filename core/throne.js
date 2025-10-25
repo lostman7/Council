@@ -1,7 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import { callModel } from './dispatcher.js';
-import { initializeSeatRegistry, spawnSeat as invokeSeat, getSeatConfig, getSeats } from './seats.js';
+import {
+  initializeSeatRegistry,
+  spawnSeat as invokeSeat,
+  getSeatConfig,
+  getSeats,
+  MODEL_RUNTIME
+} from './seats.js';
 import { loadBubble, saveBubble, mergeBubble } from '../memory/bubbles.js';
 import { initRamdisk } from './ramdisk.js';
 import { searchDocs } from '../memory/vectorCache.js';
@@ -13,10 +19,12 @@ import { appendSeatTurn, getSeatHistory, clearSeatHistory } from './recorder.js'
 import { recordDriftSnapshot } from './synaptic_drift.js';
 import { autoRotateIfTriggered } from './rotation.js';
 import { emitSeatUpdate, resetSeatStates, broadcastNewSeed } from './telemetry.js';
+import { traceLog } from './trace.js';
 
 export const THRONE_LOG_LIMIT = 200;
 const SUMMARY_INTERVAL = 3;
 const SESSION_INTERVAL_MS = 60 * 1000;
+const MODEL_COOLDOWN_MS = 30 * 1000;
 
 let activeSeat = 'Idle';
 let throneLog = [];
@@ -172,6 +180,16 @@ function scheduleCouncilLoop(win, delay = SESSION_INTERVAL_MS) {
   loopTimer = setTimeout(() => runCouncilLoop(win), Math.max(0, delay));
 }
 
+async function applyModelCooldown() {
+  if (!MODEL_COOLDOWN_MS) {
+    return;
+  }
+  traceLog(
+    `[Cooldown] Waiting ${(MODEL_COOLDOWN_MS / 1000).toFixed(1)}s before next model load`
+  );
+  await new Promise((resolve) => setTimeout(resolve, MODEL_COOLDOWN_MS));
+}
+
 async function onSeatComplete(seatName, _msg, win) {
   seatTurns += 1;
   if (seatTurns < ROUND_SIZE) {
@@ -200,6 +218,7 @@ async function throneReview(win) {
   };
 
   const config = getSeatConfig('Throne') || {};
+  const throneModel = config.model || MODEL_RUNTIME.throne || 'cogito:3b';
   const messages = [
     {
       role: 'system',
@@ -209,7 +228,7 @@ async function throneReview(win) {
   ];
 
   const response = await callModel({
-    model: config.model || 'llama3-groq-tool-use:8b',
+    model: throneModel,
     messages
   });
 
@@ -283,7 +302,8 @@ export async function runCouncilLoop(win) {
       emitSystemLog(win, `Harmonic entropy ${harmonic.entropy.toFixed(2)} | lead ${leadSeat}`);
     }
 
-    for (const seatName of seatNames) {
+    for (let index = 0; index < seatNames.length; index += 1) {
+      const seatName = seatNames[index];
       const config = getSeatConfig(seatName);
       const role = config?.role ?? seatName;
       const model = config?.model;
@@ -324,6 +344,10 @@ export async function runCouncilLoop(win) {
       await handleCouncilMessage({ win, seatName: role, reply, persona: seatResult.persona, message });
 
       lastBaton = reply || baton;
+
+      if (index < seatNames.length - 1) {
+        await applyModelCooldown();
+      }
     }
 
     activeSeat = 'Idle';
