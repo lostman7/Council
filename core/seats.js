@@ -7,7 +7,7 @@ import { trace, traceLog } from './trace.js';
 import { loadPersona } from './personas.js';
 import { loadSeatRegistry, saveSeatPreferences, DEFAULT_MODELS } from './seatRegistry.js';
 import { getConfig, saveConfig } from './config.js';
-import { cooldown, loadVectorConfig } from './vectorOps.js';
+import { cooldown, loadVectorConfig, Thinker as ThinkerLock } from './vectorOps.js';
 
 const FALLBACK_MODEL = 'llama3.2:3b';
 
@@ -35,6 +35,27 @@ export const MODEL_RUNTIME = {
 };
 
 const MODEL_BLACKLIST = new Set(MODEL_RUNTIME.blacklist);
+const THINKER_ROLE = 'Thinker';
+
+function getEmbeddingPool() {
+  const pool = Array.isArray(MODEL_RUNTIME.embeddings)
+    ? MODEL_RUNTIME.embeddings.filter(Boolean)
+    : [];
+  if (pool.length) {
+    return [...new Set(pool)];
+  }
+  return ['qwen3-embedding:0.6b', 'mxbai-embed-large:latest'];
+}
+
+function sanitisePool(pool) {
+  return Array.from(
+    new Set(
+      (Array.isArray(pool) ? pool : [])
+        .filter(Boolean)
+        .filter((model) => !MODEL_BLACKLIST.has(model))
+    )
+  );
+}
 
 let seatConfigs = {
   Throne: {
@@ -64,7 +85,20 @@ async function applyActiveSeatOverrides() {
 
     if (Object.prototype.hasOwnProperty.call(configuredModels, name)) {
       const modelValue = configuredModels[name];
-      const nextModel = typeof modelValue === 'string' && modelValue.trim() ? modelValue.trim() : null;
+      let nextModel = typeof modelValue === 'string' && modelValue.trim() ? modelValue.trim() : null;
+      if (nextModel) {
+        const allowed = getAllowedModels(name);
+        if (allowed.length && !allowed.includes(nextModel)) {
+          const fallback = allowed[0] || null;
+          traceLog(`[Seat] ${name} stored model ${nextModel} not permitted, using ${fallback ?? 'auto'}`);
+          nextModel = fallback;
+        }
+        if (name === THINKER_ROLE && nextModel && !getEmbeddingPool().includes(nextModel)) {
+          const fallback = getEmbeddingPool()[0] || null;
+          traceLog(`[Seat] Thinker stored model coerced to ${fallback ?? 'auto'}`);
+          nextModel = fallback;
+        }
+      }
       if (cfg.model !== nextModel) {
         cfg.model = nextModel;
         changed = true;
@@ -146,15 +180,29 @@ export function getAllSeatConfigs() {
       enabled: cfg.enabled !== false,
       variants: Array.isArray(cfg.variants) ? cfg.variants.length : 0,
       defaultModel: cfg.defaultModel || DEFAULT_MODELS[name] || null,
-      allowedModels: getAllowedModels()
+      allowedModels: getAllowedModels(name)
     };
   }
   return result;
 }
 
-export function getAllowedModels() {
-  const list = Array.isArray(MODEL_RUNTIME.allowed) ? MODEL_RUNTIME.allowed : [];
-  return Array.from(new Set(list.filter((model) => !MODEL_BLACKLIST.has(model))));
+export function getAllowedModels(role) {
+  if (role === THINKER_ROLE) {
+    const embeddings = sanitisePool(getEmbeddingPool());
+    return embeddings.length ? embeddings : getEmbeddingPool();
+  }
+
+  const allowed = sanitisePool(MODEL_RUNTIME.allowed);
+  if (allowed.length) {
+    return allowed;
+  }
+
+  const embeddings = sanitisePool(getEmbeddingPool());
+  if (embeddings.length) {
+    return embeddings;
+  }
+
+  return [FALLBACK_MODEL];
 }
 
 export function resetSeats(newMap = {}) {
@@ -191,23 +239,39 @@ export function resetSeats(newMap = {}) {
 export function updateSeatModel(name, model) {
   if (!name) return;
   const trimmed = typeof model === 'string' ? model.trim() : '';
+  const allowed = getAllowedModels(name);
+  let nextModel = trimmed;
+
+  if (trimmed && allowed.length && !allowed.includes(trimmed)) {
+    const fallback = allowed[0] || '';
+    traceLog(`[Seat] ${name} model ${trimmed} not permitted, using ${fallback || 'auto'}`);
+    nextModel = fallback;
+  }
+
+  if (name === THINKER_ROLE && nextModel && !getEmbeddingPool().includes(nextModel)) {
+    const fallback = getEmbeddingPool()[0] || '';
+    traceLog(`[Seat] Thinker forced to embedding model ${fallback || 'auto'}`);
+    nextModel = fallback;
+  }
+
+  const resolved = nextModel || null;
   if (!seatConfigs[name]) {
     seatConfigs[name] = {
-      model: trimmed || null,
+      model: resolved,
       defaultModel: DEFAULT_MODELS[name] || null,
       enabled: true,
       variants: []
     };
   } else {
-    seatConfigs[name].model = trimmed || null;
+    seatConfigs[name].model = resolved;
     if (!seatConfigs[name].defaultModel) {
       seatConfigs[name].defaultModel = DEFAULT_MODELS[name] || seatConfigs[name].defaultModel || null;
     }
   }
   persistSeatPreferences();
   void persistConfigState();
-  trace('Seats', 'update', { seat: name, model: trimmed || null });
-  console.log(`[Council] Seat updated: ${name} → ${model}`);
+  trace('Seats', 'update', { seat: name, model: resolved });
+  console.log(`[Council] Seat updated: ${name} → ${resolved ?? 'auto'}`);
 }
 
 export function setSeatEnabled(name, enabled) {
@@ -252,29 +316,51 @@ export async function filterActiveSeats(seatRegistry) {
   return active;
 }
 
-export function getAvailableModel(requested) {
-  const fallbackPool = getAllowedModels();
-  const throne = MODEL_RUNTIME.throne;
-  if (!fallbackPool.length) {
-    fallbackPool.push(FALLBACK_MODEL);
-  }
-
-  const chooseFallback = () => fallbackPool[Math.floor(Math.random() * fallbackPool.length)];
+export function getAvailableModel(requested, role) {
+  const isThinker = role === THINKER_ROLE;
+  const allowedPool = getAllowedModels(isThinker ? THINKER_ROLE : role);
+  const pool = allowedPool.length ? [...allowedPool] : [];
+  const defaultEmbedding = getEmbeddingPool()[0];
+  const chooseFallback = () => {
+    if (pool.length) {
+      return pool[Math.floor(Math.random() * pool.length)];
+    }
+    if (isThinker) {
+      return defaultEmbedding || 'qwen3-embedding:0.6b';
+    }
+    if (role === 'Throne' && MODEL_RUNTIME.throne) {
+      return MODEL_RUNTIME.throne;
+    }
+    return FALLBACK_MODEL;
+  };
 
   if (!requested) {
     return chooseFallback();
   }
+
   if (MODEL_BLACKLIST.has(requested)) {
     traceLog(`[Blacklist] ${requested} rejected`);
     return chooseFallback();
   }
-  if (requested === throne) {
+
+  if (isThinker) {
+    const embeddings = getEmbeddingPool();
+    if (!embeddings.includes(requested)) {
+      traceLog(`[Fallback] Thinker model ${requested} is not an embedding, selecting alternate`);
+      return chooseFallback();
+    }
     return requested;
   }
-  if (!fallbackPool.includes(requested)) {
+
+  if (role === 'Throne' && requested === MODEL_RUNTIME.throne) {
+    return requested;
+  }
+
+  if (!pool.includes(requested)) {
     traceLog(`[Fallback] ${requested} not whitelisted, selecting alternate`);
     return chooseFallback();
   }
+
   return requested;
 }
 
@@ -288,7 +374,7 @@ export async function seatCycleLoop(seats, iterator) {
 
   for (let index = 0; index < entries.length; index += 1) {
     const [seatName, data] = entries[index];
-    const model = getAvailableModel(data?.model || null);
+    const model = getAvailableModel(data?.model || null, seatName);
     traceLog(`[Council] Spawning ${seatName} → ${model}`);
     if (typeof iterator === 'function') {
       await iterator(seatName, { ...data, model });
@@ -330,8 +416,43 @@ export async function spawnSeat(
   if (config) {
     config.lastModel = selectedModel;
   }
+  const isThinker = role === THINKER_ROLE;
   trace('Seat', 'model.select', { role, model: selectedModel, override: Boolean(modelOverride) });
   console.log(`[COUNCIL] Seat '${role}' assigned model → ${selectedModel}`);
+
+  if (isThinker) {
+    trace('Seat', 'spawn', { role, model: selectedModel, intent: intent || null, mode: 'embedding' });
+    if (ThinkerLock) {
+      ThinkerLock.model = selectedModel;
+    }
+
+    let text = '';
+    try {
+      await ThinkerLock?.run?.(prompt || persona?.seed || '');
+    } catch (err) {
+      const message = err?.message || String(err);
+      trace('Seat', 'thinker.embed.error', { role, err: message });
+      console.warn(`[Thinker] Embedding error: ${message}`);
+    }
+
+    try {
+      const recall = await ThinkerLock?.recall?.(prompt || persona?.seed || '');
+      text = recall || '(no embeddings found)';
+    } catch (err) {
+      const message = err?.message || String(err);
+      trace('Seat', 'thinker.recall.error', { role, err: message });
+      console.warn(`[Thinker] Recall error: ${message}`);
+      text = text || '(embedding recall unavailable)';
+    }
+
+    if (!text) {
+      text = '(no embeddings found)';
+    }
+
+    trace('Seat', 'reply', { role, bytes: text.length });
+    return { text, persona, model: selectedModel };
+  }
+
   const systemParts = [systemPrompt || `You are the ${role} of the Council.`];
 
   if (persona?.tone) {
@@ -385,17 +506,21 @@ function resolveDisplayModel(role, cfg) {
   if (DEFAULT_MODELS[role]) {
     return DEFAULT_MODELS[role];
   }
-  return MODEL_RUNTIME.allowed[0] || FALLBACK_MODEL;
+  const allowed = getAllowedModels(role);
+  if (allowed.length) {
+    return allowed[0];
+  }
+  return role === THINKER_ROLE ? getEmbeddingPool()[0] || 'qwen3-embedding:0.6b' : FALLBACK_MODEL;
 }
 
 async function ensureModelChoice(role, candidate) {
-  let selected = getAvailableModel(candidate || DEFAULT_MODELS[role] || FALLBACK_MODEL);
+  let selected = getAvailableModel(candidate || DEFAULT_MODELS[role] || FALLBACK_MODEL, role);
 
   try {
     const available = await listOllamaModels();
     if (available.length && !available.includes(selected)) {
       const fallbackCandidate = available.find((model) => !MODEL_BLACKLIST.has(model));
-      const fallback = getAvailableModel(fallbackCandidate || FALLBACK_MODEL);
+      const fallback = getAvailableModel(fallbackCandidate || FALLBACK_MODEL, role);
       trace('Seat', 'model.fallback', { role, from: selected, to: fallback });
       console.warn(`[COUNCIL] Seat '${role}' model '${selected}' unavailable → ${fallback}`);
       selected = fallback;

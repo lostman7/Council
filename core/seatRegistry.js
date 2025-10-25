@@ -8,7 +8,7 @@ export const DEFAULT_MODELS = {
   Physicist: 'deepseek-r1:1.5b',
   Engineer: 'qwen2.5-coder:1.5b',
   Linguist: 'qwen3:0.6b',
-  Thinker: 'llama3.2:3b',
+  Thinker: 'qwen3-embedding:0.6b',
   Navigator: 'PhysicsObsession/sequoia-1b:latest',
   Doctor: 'llama3.2:3b',
   Surgeon: 'deepseek-r1:1.5b',
