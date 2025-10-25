@@ -1,40 +1,40 @@
-import { refreshPool } from './pool.js';
+// core/seats.js
+// -------------------------------
+// Defines the Council seats, their models, and live update utilities.
 
-const seatRegistry = {
-  Throne: { model: 'llama3-groq-tool-use:8b', role: 'Throne' },
-  Physicist: { model: 'llama3.2:3b', role: 'Physicist' },
-  Engineer: { model: 'cogito:3b', role: 'Engineer' },
-  Linguist: { model: 'qwen3:0.6b', role: 'Linguist' },
-  Philosopher: { model: 'glm-4.6:cloud', role: 'Philosopher' },
-  Navigator: { model: 'mxbai-embed-large:latest', role: 'Navigator' },
-  Historian: { model: 'qwen3-embedding:0.6b', role: 'Historian' },
-  Strategist: { model: 'deepscaler:1.5b', role: 'Strategist' }
+let seatConfigs = {
+  Physicist: { model: 'llama3.2:3b' },
+  Engineer: { model: 'deepscaler:1.5b' },
+  Linguist: { model: 'cogito:3b' },
+  Thinker: { model: 'qwen3-embedding:0.6b' },
+  Navigator: { model: 'glm-4.6:cloud' }
 };
 
 export function getSeats() {
-  return Object.keys(seatRegistry);
+  return Object.keys(seatConfigs);
 }
 
 export function getSeatConfig(name) {
-  return seatRegistry[name] ? { ...seatRegistry[name] } : undefined;
-}
-
-export function getSeatMap() {
-  const map = {};
-  for (const name of Object.keys(seatRegistry)) {
-    map[name] = { ...seatRegistry[name] };
-  }
-  return map;
+  return seatConfigs[name] || {};
 }
 
 export function updateSeatModel(name, model) {
-  if (!name || !model) return false;
-  if (!seatRegistry[name]) return false;
-  seatRegistry[name] = { ...seatRegistry[name], model };
-  return true;
+  if (!name || !model) return;
+  if (!seatConfigs[name]) {
+    seatConfigs[name] = {};
+  }
+  seatConfigs[name].model = model;
+  console.log(`[Council] Seat updated: ${name} → ${model}`);
 }
 
-export async function refreshSeatPool() {
-  await refreshPool(true);
-  return getSeatMap();
+export function getAllSeatConfigs() {
+  const snapshot = {};
+  for (const [name, cfg] of Object.entries(seatConfigs)) {
+    snapshot[name] = { ...cfg };
+  }
+  return snapshot;
+}
+
+export function resetSeats(newMap) {
+  seatConfigs = newMap;
 }

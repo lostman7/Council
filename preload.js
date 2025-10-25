@@ -1,7 +1,7 @@
 // preload.js
 // Secure bridge so the renderer can talk to the main process.
 
-import { contextBridge, ipcRenderer } from 'electron';
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('CouncilAPI', {
   // Session control
@@ -12,10 +12,10 @@ contextBridge.exposeInMainWorld('CouncilAPI', {
   getSeats: () => ipcRenderer.send('get-seats'),
   updateSeat: (name, model) => ipcRenderer.send('update-seat', { name, model }),
 
-  // Archive
+  // Archive (already in your build)
   listArchive: () => ipcRenderer.send('list-archive'),
   loadArchive: (name) => ipcRenderer.send('load-archive', name),
 
-  // Generic listener helper
+  // Generic "on" listeners
   on: (channel, fn) => ipcRenderer.on(channel, (_evt, payload) => fn(payload))
 });

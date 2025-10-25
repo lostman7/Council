@@ -32,6 +32,15 @@ window.CouncilAPI.on('seats-list', (all) => {
   ensureDrawer();
   const container = drawer.querySelector('#seatList');
   container.innerHTML = '';
+  container.onchange = null;
+
+  if (!all || Object.keys(all).length === 0) {
+    container.innerHTML = `<p style="color:#888;text-align:center;">
+      (No seats loaded. Try restarting or checking Ollama.)
+    </p>`;
+    return;
+  }
+
   Object.entries(all).forEach(([name, cfg]) => {
     const row = document.createElement('div');
     row.className = 'seat-row';
@@ -42,16 +51,12 @@ window.CouncilAPI.on('seats-list', (all) => {
     container.appendChild(row);
   });
 
-  container.addEventListener(
-    'change',
-    (e) => {
-      const t = e.target;
-      if (t && t.matches('input[data-seat]')) {
-        window.CouncilAPI.updateSeat(t.dataset.seat, t.value.trim());
-      }
-    },
-    { once: true }
-  );
+  container.onchange = (e) => {
+    const t = e.target;
+    if (t && t.matches('input[data-seat]')) {
+      window.CouncilAPI.updateSeat(t.dataset.seat, t.value.trim());
+    }
+  };
 });
 
 // Toast when seat model updates

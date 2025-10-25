@@ -307,3 +307,9 @@ body.harmonic-mid {
 body.harmonic-high {
   background-color: #343414;
 }
+
+#debugOverlay {
+  background: #000;
+  border-top-left-radius: 4px;
+  border: 1px solid #0f0;
+}

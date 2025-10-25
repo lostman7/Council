@@ -10,6 +10,16 @@ const sendBtn = document.getElementById('sendBtn');
 const seatStatus = document.getElementById('seatStatus');
 const councilDot = document.getElementById('councilDot');
 
+const debugBox = document.createElement('div');
+debugBox.id = 'debugOverlay';
+debugBox.style.cssText =
+  'position:fixed;bottom:0;right:0;background:#111;color:#0f0;font:11px monospace;padding:4px 8px;opacity:0.8;z-index:9999;';
+document.body.appendChild(debugBox);
+
+function debug(message) {
+  debugBox.textContent = message;
+}
+
 // simple printer
 function addMessage(sender, text, side) {
   const msg = document.createElement('div');
@@ -27,6 +37,7 @@ startSessionBtn.onclick = () => {
   councilDot.classList.remove('red');
   councilDot.classList.add('green');
   addMessage('Throne', `Council assembled on "${topic}"`, 'left');
+  debug(`Council: session started with topic "${topic}"`);
 };
 
 // send a manual turn/seed
@@ -36,10 +47,12 @@ sendBtn.onclick = () => {
   window.CouncilAPI.sendSeed(text);
   addMessage('Throne', text, 'left');
   seedInput.value = '';
+  debug(`Council: manual seed "${text}"`);
 };
 
 // receive streamed council messages
 window.CouncilAPI.on('council-response', (text) => {
+  debug(`Council: ${(text || '').slice(0, 60)}…`);
   // naive routing: if line starts with "Physicist:" etc, put on right
   const m = /^([A-Za-z ]+):\s*(.*)$/.exec(text || '');
   if (m && m[1] && m[2]) {
@@ -48,6 +61,10 @@ window.CouncilAPI.on('council-response', (text) => {
   } else {
     addMessage('Throne', text, 'left');
   }
+});
+
+window.CouncilAPI.on('hud-status', (msg) => {
+  debug(`HUD: ${msg}`);
 });
 
 // (optional) update active seat from backend hooks
@@ -59,5 +76,6 @@ window.CouncilAPI.on('seat-change', (role) => {
 
 // request seats on load so Options can render
 window.addEventListener('DOMContentLoaded', () => {
+  debug('Initializing seat list...');
   window.CouncilAPI.getSeats();
 });

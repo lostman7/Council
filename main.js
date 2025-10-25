@@ -3,7 +3,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import os from 'os';
-import * as throne from './core/throne.js';
+import fetch from 'node-fetch';
+import {
+  initThrone,
+  startSession,
+  handleSeed,
+  getThroneLog,
+  recordSummary,
+  getThroneMetrics
+} from './core/throne.js';
 import * as seats from './core/seats.js';
 import { summarize } from './core/thinker.js';
 import { initVectorCache } from './memory/vectorCache.js';
@@ -22,6 +30,8 @@ const __dirname = path.dirname(__filename);
 
 let win;
 let lastPoolSignature = '';
+let lastStats = null;
+let lastPool = [];
 
 function createWindow() {
   win = new BrowserWindow({
@@ -40,11 +50,69 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer/index.html'));
 }
 
+async function checkOllama(targetWin) {
+  try {
+    const res = await fetch('http://localhost:11434/api/tags');
+    if (!res.ok) {
+      throw new Error(`unexpected status ${res.status}`);
+    }
+    const data = await res.json();
+    const modelCount = Array.isArray(data?.models) ? data.models.length : 0;
+    console.log(`✅ Ollama OK — Models: ${modelCount}`);
+    if (targetWin) {
+      targetWin.webContents.send('hud-status', 'Ollama online');
+    }
+    return true;
+  } catch (e) {
+    console.error('❌ Ollama unreachable:', e.message);
+    if (targetWin) {
+      targetWin.webContents.send('hud-status', 'Ollama offline');
+    }
+    return false;
+  }
+}
+
+function autoWake(targetWin) {
+  let spoken = false;
+  setTimeout(async () => {
+    if (spoken || !targetWin) return;
+    const metrics = getThroneMetrics();
+    if (metrics.sessionActive) {
+      spoken = true;
+      return;
+    }
+    const ok = await checkOllama(targetWin);
+    if (!ok) {
+      targetWin.webContents.send(
+        'council-response',
+        'Throne: Ollama offline — cannot begin session.'
+      );
+      return;
+    }
+    const seed =
+      'Flowfield baseline: Discuss initial resonance mapping between Physicist and Engineer.';
+    targetWin.webContents.send(
+      'council-response',
+      `Throne: Auto-seeded default session — “${seed}”`
+    );
+    try {
+      await startSession(seed, targetWin);
+      spoken = true;
+    } catch (err) {
+      console.error('autoWake error:', err);
+      targetWin.webContents.send(
+        'council-response',
+        `Throne: startup error — ${err.message}`
+      );
+    }
+  }, 6000);
+}
+
 app.whenReady().then(async () => {
   createWindow();
   await initArchive();
   const previousEchoes = latestSummary();
-  await throne.initThrone(win);
+  await initThrone(win);
   await initVectorCache('./flowfield_docs');
   scheduleOpticalThinker();
   startTelemetryLoop();
@@ -60,19 +128,8 @@ app.whenReady().then(async () => {
     });
   }
 
-  setTimeout(() => {
-    if (!win) return;
-    const starter =
-      'Flowfield: begin council on unification protocol; Physicist then Engineer, then summarize.';
-    win.webContents.send('council-response', `Throne: Seeding — "${starter}"`);
-    throne.startSession(starter, win).catch((e) => {
-      console.error('auto seed error:', e);
-      win.webContents.send(
-        'council-response',
-        `Throne: (auto-seed error) ${e.message}`
-      );
-    });
-  }, 3500);
+  await checkOllama(win);
+  autoWake(win);
 });
 
 app.on('window-all-closed', () => {
@@ -91,7 +148,7 @@ ipcMain.on('saveSettings', (_, config) => {
 
 ipcMain.on('start-session', async (_evt, topic) => {
   try {
-    await throne.startSession(topic, win);
+    await startSession(topic, win);
   } catch (e) {
     console.error('start-session error:', e);
     if (win) {
@@ -105,7 +162,7 @@ ipcMain.on('start-session', async (_evt, topic) => {
 
 ipcMain.on('seed', async (_evt, text) => {
   try {
-    await throne.handleSeed(text, win);
+    await handleSeed(text, win);
   } catch (e) {
     console.error('seed error:', e);
     if (win) {
@@ -115,17 +172,12 @@ ipcMain.on('seed', async (_evt, text) => {
 });
 
 ipcMain.on('get-seats', (evt) => {
-  const all = seats.getSeats().reduce((acc, name) => {
-    acc[name] = seats.getSeatConfig(name);
-    return acc;
-  }, {});
-  evt.sender.send('seats-list', all);
+  evt.sender.send('seats-list', seats.getAllSeatConfigs());
 });
 
 ipcMain.on('update-seat', (_evt, { name, model }) => {
   try {
-    const updated = seats.updateSeatModel(name, model);
-    if (!updated) return;
+    seats.updateSeatModel(name, model);
     if (win) {
       win.webContents.send('seats-updated', { name, model });
     }
@@ -149,13 +201,13 @@ const TELEMETRY_INTERVAL_MS = 5 * 1000;
 
 function scheduleOpticalThinker() {
   setInterval(async () => {
-    const log = throne.getThroneLog(30);
+    const log = getThroneLog(30);
     if (!log.length) {
       return;
     }
 
     const summary = await summarize('Throne', log);
-    await throne.recordSummary(summary, { win, broadcast: false });
+    await recordSummary(summary, { win, broadcast: false });
     console.log('[Optical Thinker Tick]', summary);
   }, THINKER_INTERVAL_MS);
 }
@@ -165,7 +217,9 @@ function startTelemetryLoop() {
     if (!win) return;
 
     const stats = await getStats();
+    lastStats = stats;
     const poolList = await refreshPool(forcePool);
+    lastPool = poolList;
     const poolSignature = poolList.join(',');
     if (poolSignature !== lastPoolSignature) {
       lastPoolSignature = poolSignature;
@@ -173,7 +227,7 @@ function startTelemetryLoop() {
       win.webContents.send('system-log', `[${stamp}] Pool: ${poolSignature || 'no models loaded'}`);
     }
 
-    const metrics = throne.getThroneMetrics();
+    const metrics = getThroneMetrics();
     const harmony = getHarmonicState();
     win.webContents.send('telemetry-update', {
       stats,
