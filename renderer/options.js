@@ -51,9 +51,16 @@ window.CouncilAPI.on('seats-list', (all) => {
   Object.entries(all).forEach(([name, cfg]) => {
     const row = document.createElement('div');
     row.className = 'seat-row';
+    const enabled = cfg?.enabled !== false;
+    const variantCount = typeof cfg?.variants === 'number' ? cfg.variants : 0;
+    const variantLabel = variantCount ? `${variantCount} variants` : '—';
     row.innerHTML = `
-      <label>${name}</label>
+      <label class="seat-label">
+        <input type="checkbox" class="seat-toggle" data-seat="${name}" ${enabled ? 'checked' : ''} />
+        <span>${name}</span>
+      </label>
       <input type="text" value="${cfg?.model || ''}" data-seat="${name}" />
+      <span class="variant-count">${variantLabel}</span>
     `;
     container.appendChild(row);
   });
@@ -68,13 +75,22 @@ window.CouncilAPI.on('auto-rotate-state', (state) => {
   }
 });
 
-window.CouncilAPI.on('seats-updated', ({ name, model }) => {
+window.CouncilAPI.on('seats-updated', ({ name, model, enabled }) => {
   ensureDrawer();
-  const input = drawer.querySelector(`input[data-seat="${name}"]`);
-  if (input && input.value !== model) {
-    input.value = model;
+  if (model !== undefined) {
+    const input = drawer.querySelector(`input[data-seat="${name}"]`);
+    if (input && input.value !== model) {
+      input.value = model;
+    }
+    appendLog(`Seat updated: ${name} → ${model}`);
   }
-  appendLog(`Seat updated: ${name} → ${model}`);
+  if (enabled !== undefined) {
+    const toggle = drawer.querySelector(`input.seat-toggle[data-seat="${name}"]`);
+    if (toggle) {
+      toggle.checked = Boolean(enabled);
+    }
+    appendLog(`Seat ${name} ${enabled ? 'enabled' : 'disabled'}`);
+  }
 });
 
 function handleDrawerChange(event) {
@@ -83,6 +99,12 @@ function handleDrawerChange(event) {
 
   if (target.matches('input[data-seat]')) {
     window.CouncilAPI.updateSeat(target.dataset.seat, target.value.trim());
+    return;
+  }
+
+  if (target.matches('input.seat-toggle[data-seat]')) {
+    window.CouncilAPI.setSeatEnabled(target.dataset.seat, target.checked);
+    appendLog(`Seat ${target.dataset.seat} ${target.checked ? 'enabled' : 'disabled'}`);
     return;
   }
 

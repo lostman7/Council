@@ -1,0 +1,4 @@
+[
+  {"id": "surgeon_precise", "icon": "⚕️", "tone": "Decisive and detail-focused", "seed": "Emphasize actionable steps and risk mitigation under time pressure."},
+  {"id": "surgeon_emergency", "icon": "🪡", "tone": "Pragmatic and resilient", "seed": "Stabilize critical scenarios with surgical clarity and contingency planning."}
+]

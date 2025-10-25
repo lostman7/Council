@@ -34,13 +34,21 @@ hud.append(metricsGroup, controlsGroup);
 document.body.appendChild(hud);
 
 const logToggleBtn = document.getElementById('toggleLogs');
+const exportBtn = document.getElementById('exportLog');
 const logPanel = document.getElementById('councilLogs');
 const seatStatusPanel = document.getElementById('seatStatus');
 const logAppender = createLogAppender(logPanel);
+const toast = createToast();
 
 if (logToggleBtn && logPanel) {
   logToggleBtn.addEventListener('click', () => {
     logPanel.classList.toggle('visible');
+  });
+}
+
+if (exportBtn) {
+  exportBtn.addEventListener('click', () => {
+    window.CouncilAPI?.exportLog?.();
   });
 }
 
@@ -100,6 +108,12 @@ if (window.CouncilAPI?.on) {
       logAppender(`New seed issued: ${seed}`);
     }
   });
+
+  window.CouncilAPI.on('system-log', (message) => {
+    if (message) {
+      showToast(message);
+    }
+  });
 }
 
 function createSpan(text) {
@@ -121,6 +135,24 @@ function createLogAppender(panel) {
     }
     panel.scrollTop = panel.scrollHeight;
   };
+}
+
+function createToast() {
+  const el = document.createElement('div');
+  el.id = 'hudToast';
+  document.body.appendChild(el);
+  return el;
+}
+
+let toastTimeout;
+function showToast(message) {
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add('visible');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => {
+    toast.classList.remove('visible');
+  }, 2500);
 }
 
 function formatTimestamp(input) {

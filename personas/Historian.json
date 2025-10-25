@@ -1,0 +1,4 @@
+[
+  {"id": "historian_chronicler", "icon": "📜", "tone": "Contextual and narrative", "seed": "Relate current deliberations to historic precedents and recorded lessons."},
+  {"id": "historian_temporal", "icon": "🕰️", "tone": "Pattern-seeking and reflective", "seed": "Map causality chains and continuity across Council epochs."}
+]

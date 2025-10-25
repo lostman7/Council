@@ -21,7 +21,8 @@ Ensure a local Ollama instance is running on `http://localhost:11434` with the s
 - **Flowfield retrieval** layer that embeds documents from `./flowfield_docs` into a RAM-disk vector cache for contextual prompts.
 - **Optical Thinker** summarizer that condenses Throne logs periodically and on-demand.
 - **Council Vision HUD** showing seat activity, active topic, RAM/GPU usage, token estimates, pool models, and last summary timestamp with an in-app log drawer.
-- **Dynamic Seat Registry** editable from the in-app options drawer so each role can be bound to a different Ollama model at runtime.
+- **Expanded Persona Registry** auto-detects every persona JSON in `./personas/`, lets you enable or disable seats before a session, and persists model bindings in `~/.council_config.json`.
+- **Council Exporter** button in the HUD that writes the current transcript plus RAM-disk bubbles to `archive/exports/` for archival or sharing.
 - **Session seeding** via the input bar start button to kick off a self-running conversation loop, with additional prompts queued through the chat input.
 - **Continuum Recall** persists the latest topic, seat roster, and harmonic weights so the Council resumes mid-conversation on next launch.
 

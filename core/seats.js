@@ -4,34 +4,30 @@
 
 import { callModel } from './dispatcher.js';
 import { loadPersona } from './personas.js';
+import { loadSeatRegistry, saveSeatPreferences } from './seatRegistry.js';
 
 let seatConfigs = {
-  Physicist: { model: 'llama3.2:3b' },
-  Engineer: { model: 'deepscaler:1.5b' },
-  Linguist: { model: 'cogito:3b' },
-  Thinker: { model: 'qwen:1.8b' },
-  Navigator: { model: 'glm-4.6:cloud' },
-  Throne: { model: 'llama3-groq-tool-use:8b' }
+  Throne: { model: 'llama3-groq-tool-use:8b', enabled: true, variants: [] }
 };
+let initializationPromise = null;
+let initialized = false;
 
-export function getSeats() {
-  return Object.keys(seatConfigs);
-}
-
-export function getSeatConfig(name) {
-  return seatConfigs[name] || {};
-}
-
-export function updateSeatModel(name, model) {
-  if (!name || !model) return;
-  if (!seatConfigs[name]) {
-    seatConfigs[name] = {};
+async function ensureInitialized() {
+  if (initialized) return;
+  if (!initializationPromise) {
+    initializationPromise = loadSeatRegistry().then((registry) => {
+      seatConfigs = registry;
+      initialized = true;
+    });
   }
-  seatConfigs[name].model = model;
-  console.log(`[Council] Seat updated: ${name} → ${model}`);
+  await initializationPromise;
 }
 
-export function getAllSeatConfigs() {
+export async function initializeSeatRegistry() {
+  await ensureInitialized();
+}
+
+function snapshotConfigs() {
   const snapshot = {};
   for (const [name, cfg] of Object.entries(seatConfigs)) {
     snapshot[name] = { ...cfg };
@@ -39,13 +35,76 @@ export function getAllSeatConfigs() {
   return snapshot;
 }
 
-export function resetSeats(newMap) {
-  seatConfigs = newMap;
+export function getSeats({ includeDisabled = false } = {}) {
+  return Object.entries(seatConfigs)
+    .filter(([, cfg]) => includeDisabled || cfg.enabled !== false)
+    .map(([name]) => name);
+}
+
+export function getSeatConfig(name) {
+  return seatConfigs[name];
+}
+
+export function getAllSeatConfigs() {
+  const result = {};
+  for (const [name, cfg] of Object.entries(seatConfigs)) {
+    result[name] = {
+      model: cfg.model,
+      enabled: cfg.enabled !== false,
+      variants: Array.isArray(cfg.variants) ? cfg.variants.length : 0
+    };
+  }
+  return result;
+}
+
+export function resetSeats(newMap = {}) {
+  for (const [name, cfg] of Object.entries(newMap)) {
+    if (!seatConfigs[name]) {
+      seatConfigs[name] = { model: cfg.model, enabled: cfg.enabled !== false, variants: [] };
+    } else {
+      if (cfg.model) {
+        seatConfigs[name].model = cfg.model;
+      }
+      if (cfg.enabled !== undefined) {
+        seatConfigs[name].enabled = Boolean(cfg.enabled);
+      }
+    }
+  }
+  persistSeatPreferences();
+}
+
+export function updateSeatModel(name, model) {
+  if (!name || !model) return;
+  if (!seatConfigs[name]) {
+    seatConfigs[name] = { model, enabled: true, variants: [] };
+  } else {
+    seatConfigs[name].model = model;
+  }
+  persistSeatPreferences();
+  console.log(`[Council] Seat updated: ${name} → ${model}`);
+}
+
+export function setSeatEnabled(name, enabled) {
+  if (!seatConfigs[name]) {
+    seatConfigs[name] = { model: 'llama3.2:3b', enabled: Boolean(enabled), variants: [] };
+  } else {
+    seatConfigs[name].enabled = Boolean(enabled);
+  }
+  persistSeatPreferences();
+}
+
+export function isSeatEnabled(name) {
+  return seatConfigs[name]?.enabled !== false;
 }
 
 export async function spawnSeat(role, prompt, { modelOverride, messages, systemPrompt } = {}) {
+  await ensureInitialized();
+  const config = seatConfigs[role];
+  if (!config || config.enabled === false) {
+    throw new Error(`Seat ${role} is disabled`);
+  }
+
   const persona = loadPersonaSafe(role);
-  const config = getSeatConfig(role) || {};
   const model = modelOverride || config.model || 'llama3.2:3b';
   const systemParts = [systemPrompt || `You are the ${role} of the Council.`];
 
@@ -74,4 +133,8 @@ function loadPersonaSafe(role) {
     console.warn(`[Persona] ${role} using default persona — ${err.message}`);
     return null;
   }
+}
+
+function persistSeatPreferences() {
+  void saveSeatPreferences(snapshotConfigs());
 }

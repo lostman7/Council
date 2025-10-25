@@ -211,6 +211,29 @@ body {
   color: #8aa0ff;
 }
 
+.seat-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+}
+
+.seat-label span {
+  flex: 1;
+}
+
+.seat-label input[type='checkbox'] {
+  width: auto;
+  accent-color: #6bd4ff;
+}
+
+.variant-count {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #5ab8ff;
+}
+
 .seat-row input {
   width: 100%;
   padding: 8px;
@@ -261,20 +284,26 @@ body {
   gap: 8px;
 }
 
-#toggleLogs {
+#hudButtons {
   position: absolute;
   bottom: 190px;
   right: 20px;
+  display: flex;
+  gap: 8px;
+  z-index: 140;
+}
+
+#hudButtons button {
   padding: 4px 10px;
   background: #222;
   border: 1px solid #555;
   color: #ccc;
   border-radius: 4px;
   cursor: pointer;
-  z-index: 140;
+  transition: background 0.2s ease;
 }
 
-#toggleLogs:hover {
+#hudButtons button:hover {
   background: #2e2e2e;
 }
 
@@ -316,6 +345,28 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+#hudToast {
+  position: fixed;
+  bottom: 220px;
+  right: 20px;
+  padding: 6px 12px;
+  background: rgba(40, 60, 40, 0.92);
+  color: #9dffb2;
+  font-family: 'IBM Plex Mono', monospace;
+  border: 1px solid #3fbf80;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(10px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 200;
+}
+
+#hudToast.visible {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .seatStat {

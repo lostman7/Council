@@ -25,6 +25,7 @@ import {
 } from './core/continuum.js';
 import { loadContinuumState } from './core/continuum_recall.js';
 import { toggleAutoRotation, isAutoRotationEnabled } from './core/rotation.js';
+import { exportCouncilLog } from './core/exporter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -113,6 +114,7 @@ app.whenReady().then(async () => {
   createWindow();
   setTelemetryTarget(win);
   await initArchive();
+  await seats.initializeSeatRegistry();
   const previousEchoes = latestSummary();
   const recall = loadContinuumState();
 
@@ -183,8 +185,20 @@ app.on('window-all-closed', () => {
 
 ipcMain.on('saveSettings', (_, config) => {
   const confPath = path.join(os.homedir(), '.council_config.json');
-  fs.writeFileSync(confPath, JSON.stringify(config, null, 2));
-  console.log('Council settings saved:', config);
+  let existing = {};
+  try {
+    if (fs.existsSync(confPath)) {
+      existing = JSON.parse(fs.readFileSync(confPath, 'utf8')) || {};
+    }
+  } catch (err) {
+    console.warn('Failed to read existing settings before save:', err.message);
+  }
+  const next = { ...existing, ...config };
+  if (existing.seats && !config?.seats) {
+    next.seats = existing.seats;
+  }
+  fs.writeFileSync(confPath, JSON.stringify(next, null, 2));
+  console.log('Council settings saved:', next);
   if (win) {
     const stamp = new Date().toLocaleTimeString();
     win.webContents.send('system-log', `[${stamp}] Settings updated.`);
@@ -233,6 +247,18 @@ ipcMain.on('update-seat', (_evt, { name, model }) => {
   }
 });
 
+ipcMain.on('set-seat-enabled', (_evt, { name, enabled }) => {
+  try {
+    seats.setSeatEnabled(name, enabled);
+    if (win) {
+      win.webContents.send('seats-updated', { name, enabled });
+      resetSeatStates(seats.getSeats());
+    }
+  } catch (e) {
+    console.error('set-seat-enabled error:', e);
+  }
+});
+
 ipcMain.on('toggle-auto-rotate', (_evt, enabled) => {
   toggleAutoRotation(enabled);
   if (win) {
@@ -248,6 +274,16 @@ ipcMain.on('list-archive', (event) => {
 ipcMain.on('load-archive', (event, name) => {
   const content = loadSession(name);
   event.sender.send('archive-content', content);
+});
+
+ipcMain.on('export-chat', async (event) => {
+  try {
+    const file = await exportCouncilLog();
+    event.sender.send('system-log', `Exported council log → ${file}`);
+  } catch (err) {
+    console.error('export-chat error:', err);
+    event.sender.send('system-log', `Export failed: ${err.message || err}`);
+  }
 });
 
 const THINKER_INTERVAL_MS = 15 * 60 * 1000;

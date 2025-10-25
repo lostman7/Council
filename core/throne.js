@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { callModel } from './dispatcher.js';
-import { spawnSeat as invokeSeat, getSeatConfig, getSeats } from './seats.js';
+import { initializeSeatRegistry, spawnSeat as invokeSeat, getSeatConfig, getSeats } from './seats.js';
 import { loadBubble, saveBubble, mergeBubble } from '../memory/bubbles.js';
 import { initRamdisk } from './ramdisk.js';
 import { searchDocs } from '../memory/vectorCache.js';
@@ -37,6 +37,7 @@ const ROUND_SIZE = 4;
 const LOG_DIR = path.join(process.cwd(), 'logs');
 
 export async function initThrone(win) {
+  await initializeSeatRegistry();
   await initRamdisk();
   await initHarmony();
   syncThroneLog();
