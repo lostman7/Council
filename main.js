@@ -9,6 +9,7 @@ import { summarize } from './core/thinker.js';
 import { initVectorCache } from './memory/vectorCache.js';
 import { getStats } from './core/telemetry.js';
 import { refreshPool } from './core/pool.js';
+import { getHarmonicState } from './core/harmony.js';
 import {
   initArchive,
   latestSummary,
@@ -139,10 +140,12 @@ function startTelemetryLoop() {
     }
 
     const metrics = throne.getThroneMetrics();
+    const harmony = getHarmonicState();
     win.webContents.send('telemetry-update', {
       stats,
       pool: poolList,
-      metrics
+      metrics,
+      harmony
     });
   };
 

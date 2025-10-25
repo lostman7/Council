@@ -41,3 +41,41 @@ export async function summarize(role, log) {
     return '(summary failed)';
   }
 }
+
+export async function reconcile(conflictSummary) {
+  const summaryText = Array.isArray(conflictSummary)
+    ? conflictSummary.filter(Boolean).join('\n')
+    : String(conflictSummary ?? '');
+
+  if (!summaryText.trim()) {
+    return '(no reconciliation)';
+  }
+
+  try {
+    const res = await fetch('http://localhost:11434/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: THINKER_MODEL,
+        stream: false,
+        messages: [
+          {
+            role: 'system',
+            content: 'Unify conflicting Council viewpoints into one balanced statement.'
+          },
+          { role: 'user', content: summaryText }
+        ]
+      })
+    });
+
+    if (!res.ok) {
+      throw new Error(`Optical Thinker reconciliation failed with status ${res.status}`);
+    }
+
+    const data = await res.json();
+    return data.message?.content || '(reconciliation failed)';
+  } catch (err) {
+    console.error('Reconcile error:', err);
+    return '(no reconciliation)';
+  }
+}

@@ -6,6 +6,8 @@ metricsGroup.className = 'hud-metrics';
 
 const seatSpan = createSpan('Seat: Idle');
 const topicSpan = createSpan('Topic: —');
+const entropySpan = createSpan('Entropy 0.00');
+const leadSpan = createSpan('Lead —');
 const ramSpan = createSpan('RAM 0.0%');
 const gpuSpan = createSpan('GPU n/a');
 const tokenSpan = createSpan('Tokens 0');
@@ -13,7 +15,18 @@ const summarySpan = createSpan('Thinker —');
 const modelsSpan = createSpan('Models: —');
 const updatedSpan = createSpan('Updated —');
 
-metricsGroup.append(seatSpan, topicSpan, ramSpan, gpuSpan, tokenSpan, summarySpan, modelsSpan, updatedSpan);
+metricsGroup.append(
+  seatSpan,
+  topicSpan,
+  entropySpan,
+  leadSpan,
+  tokenSpan,
+  summarySpan,
+  ramSpan,
+  gpuSpan,
+  modelsSpan,
+  updatedSpan
+);
 
 const controlsGroup = document.createElement('div');
 controlsGroup.className = 'hud-controls';
@@ -46,7 +59,7 @@ if (window.CouncilAPI?.on) {
     seatSpan.textContent = `Seat: ${role}`;
   });
 
-  window.CouncilAPI.on('telemetry-update', ({ stats, pool, metrics }) => {
+  window.CouncilAPI.on('telemetry-update', ({ stats, pool, metrics, harmony }) => {
     if (metrics) {
       seatSpan.textContent = `Seat: ${metrics.activeSeat ?? 'Idle'}`;
       topicSpan.textContent = `Topic: ${metrics.sessionTopic ? truncate(metrics.sessionTopic, 40) : '—'}`;
@@ -63,6 +76,16 @@ if (window.CouncilAPI?.on) {
     }
 
     modelsSpan.textContent = `Models: ${Array.isArray(pool) && pool.length ? pool.join(', ') : '—'}`;
+
+    if (harmony) {
+      const entropyValue = typeof harmony.entropy === 'number' ? harmony.entropy : 0;
+      entropySpan.textContent = `Entropy ${entropyValue.toFixed(2)}`;
+      const leadEntry = Object.entries(harmony.weights || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([name]) => name)[0];
+      leadSpan.textContent = `Lead ${leadEntry || '—'}`;
+      updateHarmonyBackdrop(entropyValue);
+    }
   });
 
   window.CouncilAPI.on('system-log', (entry) => {
@@ -103,4 +126,19 @@ function truncate(text, max) {
   if (typeof text !== 'string') return '';
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1)}…`;
+}
+
+function updateHarmonyBackdrop(entropy) {
+  const body = document.body;
+  if (!body) return;
+  body.classList.remove('harmonic-low', 'harmonic-mid', 'harmonic-high');
+
+  let target = 'harmonic-low';
+  if (entropy >= 3) {
+    target = 'harmonic-high';
+  } else if (entropy >= 1.5) {
+    target = 'harmonic-mid';
+  }
+
+  body.classList.add(target);
 }

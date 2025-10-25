@@ -8,6 +8,7 @@ body {
   height: 100vh;
   box-sizing: border-box;
   padding-bottom: 90px;
+  transition: background-color 2s ease;
 }
 
 #recallSessionBtn {
@@ -293,4 +294,16 @@ body {
 
 .log-entry:last-child {
   border-bottom: none;
+}
+
+body.harmonic-low {
+  background-color: #141414;
+}
+
+body.harmonic-mid {
+  background-color: #1d2436;
+}
+
+body.harmonic-high {
+  background-color: #343414;
 }

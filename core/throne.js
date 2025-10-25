@@ -3,8 +3,9 @@ import { getSeatConfig, getSeats } from './seats.js';
 import { loadBubble, saveBubble, mergeBubble } from '../memory/bubbles.js';
 import { initRamdisk } from './ramdisk.js';
 import { searchDocs } from '../memory/vectorCache.js';
-import { summarize } from './thinker.js';
+import { summarize, reconcile } from './thinker.js';
 import { saveSession } from './continuum.js';
+import { initHarmony, tuneHarmony, dominantSeat } from './harmony.js';
 
 export const THRONE_LOG_LIMIT = 200;
 const SUMMARY_INTERVAL = 3;
@@ -25,6 +26,7 @@ let lastBaton = '';
 
 export async function initThrone(win) {
   await initRamdisk();
+  initHarmony();
   syncThroneLog();
   activeSeat = 'Idle';
   sessionActive = false;
@@ -173,6 +175,17 @@ async function runCouncilLoop(win) {
       batonMessageLogged = true;
     }
 
+    const harmonic = tuneHarmony(baton || sessionTopic);
+    const leadSeat = dominantSeat();
+    const harmonicMessage = `Throne: Harmonic field adjusted — Entropy ${harmonic.entropy
+      .toFixed(2)}, lead seat ${leadSeat}.`;
+    appendToThroneLog([harmonicMessage]);
+    turnLog.push(harmonicMessage);
+    if (win) {
+      win.webContents.send('council-response', harmonicMessage);
+      emitSystemLog(win, `Harmonic entropy ${harmonic.entropy.toFixed(2)} | lead ${leadSeat}`);
+    }
+
     for (const seatName of seatNames) {
       const config = getSeatConfig(seatName);
       const role = config?.role ?? seatName;
@@ -195,7 +208,9 @@ async function runCouncilLoop(win) {
       }
 
       const prompt = buildPrompt({ topic: sessionTopic, baton, memory: bubble, rag, role, iteration });
-      const reply = await spawnSeat(role, prompt, model);
+      const weight = harmonic.weights?.[seatName] ?? 1.0;
+      const weightedPrompt = `${prompt}\n[Resonance Weight:${weight.toFixed(2)}]`;
+      const reply = await spawnSeat(role, weightedPrompt, model);
       const message = `${role}: ${reply}`;
 
       saveBubble(seatName, reply);
@@ -223,6 +238,11 @@ async function runCouncilLoop(win) {
     if (iteration % SUMMARY_INTERVAL === 0 && turnLog.length) {
       const summary = await summarize('Throne', turnLog);
       await recordSummary(summary, { win, broadcast: true });
+    }
+
+    if (harmonic.entropy >= 1.5 && turnLog.length > 1) {
+      const reconciliation = await reconcile(turnLog);
+      await recordSummary(reconciliation, { win, broadcast: true });
     }
 
     if (iteration % 5 === 0) {
