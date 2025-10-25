@@ -1,0 +1,35 @@
+import { app, BrowserWindow, ipcMain } from 'electron';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import * as throne from './core/throne.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+let win;
+
+function createWindow() {
+  win = new BrowserWindow({
+    width: 1100,
+    height: 700,
+    backgroundColor: '#0b0c0f',
+    title: 'Council',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  });
+
+  win.removeMenu();
+  win.loadFile(path.join(__dirname, 'renderer/index.html'));
+}
+
+app.whenReady().then(createWindow);
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+ipcMain.on('seed', (_, msg) => {
+  throne.handleSeed(msg, win);
+});
