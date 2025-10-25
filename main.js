@@ -4,6 +4,8 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import os from 'os';
 import * as throne from './core/throne.js';
+import { summarize } from './core/thinker.js';
+import { loadBubble, mergeBubble } from './memory/bubbles.js';
 import { initVectorCache } from './memory/vectorCache.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -32,6 +34,7 @@ app.whenReady().then(async () => {
   createWindow();
   await throne.initThrone(win);
   await initVectorCache('./flowfield_docs');
+  scheduleOpticalThinker();
 });
 
 app.on('window-all-closed', () => {
@@ -47,3 +50,19 @@ ipcMain.on('saveSettings', (_, config) => {
 ipcMain.on('seed', async (_, msg) => {
   await throne.handleSeed(msg, win);
 });
+
+const THINKER_INTERVAL_MS = 15 * 60 * 1000;
+
+function scheduleOpticalThinker() {
+  setInterval(async () => {
+    const log = loadBubble('Throne');
+    if (!log.length) {
+      return;
+    }
+
+    const recent = log.slice(-30);
+    const summary = await summarize('Throne', recent);
+    mergeBubble('Throne', [`Optical Thinker: ${summary}`], throne.THRONE_LOG_LIMIT);
+    console.log('[Optical Thinker Tick]', summary);
+  }, THINKER_INTERVAL_MS);
+}
