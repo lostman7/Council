@@ -1,3 +1,5 @@
+import { lazyStart } from '../core/uiControls.js';
+
 // renderer/app.js
 // Wires the buttons and prints messages into the two columns.
 
@@ -12,7 +14,6 @@ const councilDot = document.getElementById('councilDot');
 
 const logPanel = document.getElementById('councilLogs');
 const LOG_LIMIT = 200;
-let firstMessageSent = false;
 
 function logMessage(message) {
   if (!logPanel) return;
@@ -42,13 +43,12 @@ function addMessage(sender, text, side) {
 // start session by topic (autonomous loop)
 startSessionBtn.onclick = () => {
   const topic = seedInput.value.trim() || 'Flowfield: baseline session';
-  window.CouncilAPI.startSession(topic);
+  void lazyStart(topic, { force: true });
   seatStatusLabel.textContent = 'Active Seat: Physicist';
   councilDot.classList.remove('red');
   councilDot.classList.add('green');
   addMessage('Throne', `Council assembled on "${topic}"`, 'left');
   logMessage(`Council session started with topic "${topic}"`);
-  firstMessageSent = true;
 };
 
 // send a manual turn/seed
@@ -62,12 +62,6 @@ sendBtn.onclick = async () => {
   sendBtn.textContent = '⏳ Thinking...';
 
   try {
-    if (!firstMessageSent) {
-      window.dispatchEvent(
-        new CustomEvent('send-first-message', { detail: { message: text } })
-      );
-      firstMessageSent = true;
-    }
     await window.CouncilAPI.sendSeed(text);
     logMessage('Send: ✅ Reply received.');
   } catch (err) {
@@ -133,6 +127,5 @@ window.CouncilAPI.on('seat-change', (role) => {
 
 // request seats on load so Options can render
 window.addEventListener('DOMContentLoaded', () => {
-  logMessage('Initializing seat list...');
-  window.CouncilAPI.getSeats();
+  logMessage('Initializing seat controls...');
 });

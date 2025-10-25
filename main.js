@@ -97,6 +97,10 @@ app.whenReady().then(async () => {
 
   let initialOllama = false;
 
+  if (recall) {
+    initialOllama = await checkOllama(win);
+  }
+
   if (win) {
     win.webContents.once('did-finish-load', async () => {
       if (previousEchoes) {
@@ -140,7 +144,7 @@ app.whenReady().then(async () => {
     });
   }
 
-  initialOllama = await checkOllama(win);
+  // Skip early Ollama probing when launching fresh sessions; checks occur on demand.
 });
 
 app.on('window-all-closed', () => {
