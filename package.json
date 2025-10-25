@@ -1,0 +1,14 @@
+{
+  "name": "council",
+  "version": "0.1.0",
+  "description": "Standalone multi-AI chatroom environment.",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^28.0.0"
+  }
+}
