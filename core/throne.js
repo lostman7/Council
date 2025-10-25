@@ -10,6 +10,7 @@ import {
 } from './seats.js';
 import { loadBubble, saveBubble, mergeBubble } from '../memory/bubbles.js';
 import { initRamdisk } from './ramdisk.js';
+import { chunkAllDocs } from './chunker.js';
 import { searchDocs } from '../memory/vectorCache.js';
 import { searchEmbeddings } from './vectorOps.js';
 import { summarize, reconcile } from './thinker.js';
@@ -48,6 +49,7 @@ const LOG_DIR = path.join(process.cwd(), 'logs');
 export async function initThrone(win) {
   await initializeSeatRegistry();
   await initRamdisk();
+  await chunkAllDocs(path.join(process.cwd(), 'memory'));
   await initHarmony();
   syncThroneLog();
   activeSeat = 'Idle';
