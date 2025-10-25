@@ -11,7 +11,7 @@
     <div id="title">
       Council <span id="councilDot" class="dot red"></span>
     </div>
-    <div id="seatStatus">Active Seat: —</div>
+    <div id="seatStatusLabel">Active Seat: —</div>
     <div id="optionsBtn">⚙️</div>
   </div>
 
@@ -20,10 +20,9 @@
     <div id="right" class="column right"></div>
   </div>
 
-  <div id="logWindow" class="log-window">
-    <div class="log-header">Council Logs</div>
-    <div id="logContent" class="log-content"></div>
-  </div>
+  <button id="toggleLogs" type="button">Logs</button>
+  <div id="seatStatus" class="seat-panel"></div>
+  <div id="councilLogs" class="council-logs"></div>
 
   <div id="inputBar">
     <input id="seedInput" type="text" placeholder="Enter a topic or question..." />

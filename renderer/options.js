@@ -4,6 +4,7 @@
 const optionsBtn = document.getElementById('optionsBtn');
 
 let drawer;
+let drawerInitialized = false;
 function ensureDrawer() {
   if (drawer) return drawer;
   drawer = document.createElement('div');
@@ -14,10 +15,17 @@ function ensureDrawer() {
       <h3>Council Options</h3>
       <button id="closeOptionsDrawer">×</button>
     </div>
+    <label class="auto-rotate-row">
+      <input type="checkbox" id="autoRotateToggle" checked /> Auto-rotate Seats
+    </label>
     <div id="seatList"></div>
   `;
   document.body.appendChild(drawer);
   document.getElementById('closeOptionsDrawer').onclick = () => drawer.classList.add('hidden');
+  if (!drawerInitialized) {
+    drawer.addEventListener('change', handleDrawerChange);
+    drawerInitialized = true;
+  }
   return drawer;
 }
 
@@ -32,7 +40,6 @@ window.CouncilAPI.on('seats-list', (all) => {
   ensureDrawer();
   const container = drawer.querySelector('#seatList');
   container.innerHTML = '';
-  container.onchange = null;
 
   if (!all || Object.keys(all).length === 0) {
     container.innerHTML = `<p style="color:#888;text-align:center;">
@@ -51,25 +58,52 @@ window.CouncilAPI.on('seats-list', (all) => {
     container.appendChild(row);
   });
 
-  container.onchange = (e) => {
-    const t = e.target;
-    if (t && t.matches('input[data-seat]')) {
-      window.CouncilAPI.updateSeat(t.dataset.seat, t.value.trim());
-    }
-  };
 });
 
-// Toast when seat model updates
-window.CouncilAPI.on('seats-updated', ({ name, model }) => {
-  const note = document.createElement('div');
-  note.className = 'log-entry';
-  note.textContent = `Seat updated: ${name} → ${model}`;
-  let log = document.getElementById('logDrawer');
-  if (!log) {
-    log = document.createElement('div');
-    log.id = 'logDrawer';
-    log.innerHTML = `<div class="log-title">System Log</div><div class="log-content"></div>`;
-    document.body.appendChild(log);
+window.CouncilAPI.on('auto-rotate-state', (state) => {
+  ensureDrawer();
+  const toggle = drawer.querySelector('#autoRotateToggle');
+  if (toggle) {
+    toggle.checked = Boolean(state);
   }
-  log.querySelector('.log-content').appendChild(note);
 });
+
+window.CouncilAPI.on('seats-updated', ({ name, model }) => {
+  ensureDrawer();
+  const input = drawer.querySelector(`input[data-seat="${name}"]`);
+  if (input && input.value !== model) {
+    input.value = model;
+  }
+  appendLog(`Seat updated: ${name} → ${model}`);
+});
+
+function handleDrawerChange(event) {
+  const target = event.target;
+  if (!target) return;
+
+  if (target.matches('input[data-seat]')) {
+    window.CouncilAPI.updateSeat(target.dataset.seat, target.value.trim());
+    return;
+  }
+
+  if (target.id === 'autoRotateToggle') {
+    window.CouncilAPI.toggleAutoRotate(target.checked);
+    appendLog(`Auto-rotate ${target.checked ? 'enabled' : 'disabled'}`);
+  }
+}
+
+function appendLog(message) {
+  const logPanel = document.getElementById('councilLogs');
+  if (!logPanel) return;
+  const line = document.createElement('div');
+  const serialised =
+    typeof message === 'string'
+      ? message
+      : JSON.stringify(message) ?? String(message ?? '');
+  const text = serialised || '';
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+  logPanel.appendChild(line);
+  while (logPanel.children.length > 200) {
+    logPanel.removeChild(logPanel.firstChild);
+  }
+}

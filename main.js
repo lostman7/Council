@@ -15,7 +15,7 @@ import {
 import * as seats from './core/seats.js';
 import { summarize } from './core/thinker.js';
 import { initVectorCache } from './memory/vectorCache.js';
-import { getStats } from './core/telemetry.js';
+import { getStats, setTelemetryTarget, resetSeatStates } from './core/telemetry.js';
 import { refreshPool } from './core/pool.js';
 import { getHarmonicState } from './core/harmony.js';
 import {
@@ -25,6 +25,7 @@ import {
   loadSession
 } from './core/continuum.js';
 import { loadContinuumState } from './core/continuum_recall.js';
+import { toggleAutoRotation, isAutoRotationEnabled } from './core/rotation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,6 +112,7 @@ function autoWake(targetWin) {
 
 app.whenReady().then(async () => {
   createWindow();
+  setTelemetryTarget(win);
   await initArchive();
   const previousEchoes = latestSummary();
   const recall = loadContinuumState();
@@ -137,6 +139,8 @@ app.whenReady().then(async () => {
           `Throne: Recalling previous echoes...\n${previousEchoes}`
         );
       }
+
+      win.webContents.send('auto-rotate-state', isAutoRotationEnabled());
 
       if (recall) {
         const topicLabel = recall.topic || 'Unnamed Continuum';
@@ -215,6 +219,7 @@ ipcMain.on('seed', async (_evt, text) => {
 
 ipcMain.on('get-seats', (evt) => {
   evt.sender.send('seats-list', seats.getAllSeatConfigs());
+  evt.sender.send('auto-rotate-state', isAutoRotationEnabled());
 });
 
 ipcMain.on('update-seat', (_evt, { name, model }) => {
@@ -222,9 +227,17 @@ ipcMain.on('update-seat', (_evt, { name, model }) => {
     seats.updateSeatModel(name, model);
     if (win) {
       win.webContents.send('seats-updated', { name, model });
+      resetSeatStates([...seats.getSeats(), 'Throne']);
     }
   } catch (e) {
     console.error('update-seat error:', e);
+  }
+});
+
+ipcMain.on('toggle-auto-rotate', (_evt, enabled) => {
+  toggleAutoRotation(enabled);
+  if (win) {
+    win.webContents.send('auto-rotate-state', isAutoRotationEnabled());
   }
 });
 

@@ -6,7 +6,7 @@ let seatConfigs = {
   Physicist: { model: 'llama3.2:3b' },
   Engineer: { model: 'deepscaler:1.5b' },
   Linguist: { model: 'cogito:3b' },
-  Thinker: { model: 'qwen3-embedding:0.6b' },
+  Thinker: { model: 'qwen:1.8b' },
   Navigator: { model: 'glm-4.6:cloud' }
 };
 

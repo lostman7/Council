@@ -8,6 +8,8 @@ import { saveSession } from './continuum.js';
 import { saveContinuumState } from './continuum_recall.js';
 import { initHarmony, tuneHarmony, dominantSeat, getHarmonicState } from './harmony.js';
 import { recordDriftSnapshot } from './synaptic_drift.js';
+import { autoRotateIfTriggered } from './rotation.js';
+import { emitSeatUpdate, resetSeatStates } from './telemetry.js';
 
 export const THRONE_LOG_LIMIT = 200;
 const SUMMARY_INTERVAL = 3;
@@ -36,6 +38,8 @@ export async function initThrone(win) {
   iteration = 0;
   pendingQueue = [];
   lastBaton = '';
+  resetSeatStates([...getSeats(), 'Throne']);
+  emitSeatUpdate('Throne', 'Idle');
 
   if (win) {
     win.webContents.send('seat-change', 'Idle');
@@ -61,6 +65,8 @@ export async function startSession(topic, win) {
   pendingQueue = [];
   lastBaton = seed;
   lastSummaryAt = null;
+  resetSeatStates([...getSeats(), 'Throne']);
+  emitSeatUpdate('Throne', 'Coordinating');
 
   appendToThroneLog([`Throne Session Topic: ${seed}`]);
   if (win) {
@@ -83,6 +89,7 @@ export function stopSession(win, { silent = false } = {}) {
     loopTimer = null;
   }
   activeSeat = 'Idle';
+  resetSeatStates([...getSeats(), 'Throne']);
   if (win) {
     win.webContents.send('seat-change', 'Idle');
     if (!silent) {
@@ -162,6 +169,7 @@ export async function runCouncilLoop(win) {
   const seatNames = getSeats().filter((name) => name !== 'Throne');
   if (!seatNames.length) {
     if (win) emitSystemLog(win, 'No configured seats available for Council loop.');
+    emitSeatUpdate('Throne', 'Idle');
     return;
   }
 
@@ -177,6 +185,7 @@ export async function runCouncilLoop(win) {
       batonMessageLogged = true;
     }
 
+    emitSeatUpdate('Throne', 'Coordinating');
     const harmonic = tuneHarmony(baton || sessionTopic);
     const leadSeat = dominantSeat();
     const harmonicMessage = `Throne: Harmonic field adjusted — Entropy ${harmonic.entropy
@@ -198,6 +207,7 @@ export async function runCouncilLoop(win) {
         win.webContents.send('seat-change', role);
         emitSystemLog(win, `Spawning seat: ${role} (${model || 'default'})`);
       }
+      emitSeatUpdate(role, 'Thinking');
 
       const bubble = loadBubble(seatName);
       let rag = '';
@@ -223,6 +233,8 @@ export async function runCouncilLoop(win) {
         win.webContents.send('council-response', message);
       }
 
+      await handleCouncilMessage({ win, seatName: role, message });
+
       lastBaton = reply || baton;
     }
 
@@ -230,6 +242,7 @@ export async function runCouncilLoop(win) {
     if (win) {
       win.webContents.send('seat-change', 'Idle');
     }
+    emitSeatUpdate('Throne', 'Idle');
 
     if (!batonMessageLogged && baton) {
       appendToThroneLog([`User: ${baton}`]);
@@ -259,6 +272,7 @@ export async function runCouncilLoop(win) {
     if (win) {
       emitSystemLog(win, `Council loop error: ${err.message || err}`);
     }
+    emitSeatUpdate('Throne', 'Idle');
   } finally {
     loopRunning = false;
     if (sessionActive) {
@@ -305,4 +319,11 @@ function emitSystemLog(win, text) {
   if (!win) return;
   const stamp = new Date().toLocaleTimeString();
   win.webContents.send('system-log', `[${stamp}] ${text}`);
+}
+
+async function handleCouncilMessage({ win, seatName, message }) {
+  emitSeatUpdate(seatName, 'Idle');
+  await autoRotateIfTriggered(message, {
+    scheduleNextTurn: () => scheduleCouncilLoop(win, 0)
+  });
 }

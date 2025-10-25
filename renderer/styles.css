@@ -57,37 +57,15 @@ body {
   font-size: 18px;
 }
 
+#seatStatusLabel {
+  font-weight: 500;
+}
+
 #chat {
   display: flex;
   flex: 1;
   overflow-y: auto;
   padding: 10px;
-}
-
-.log-window {
-  background: #0a0a0a;
-  color: #0f0;
-  font-family: monospace;
-  font-size: 11px;
-  height: 120px;
-  overflow-y: auto;
-  border-top: 1px solid #0f0;
-  padding: 4px 10px;
-  margin: 0 10px 8px;
-  border-radius: 4px;
-  box-shadow: inset 0 0 12px rgba(0, 255, 128, 0.1);
-}
-
-.log-window .log-header {
-  font-weight: bold;
-  margin-bottom: 4px;
-}
-
-.log-window .log-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 100%;
 }
 
 .column {
@@ -197,6 +175,19 @@ body {
   font-weight: 600;
 }
 
+.auto-rotate-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+  margin-bottom: 12px;
+  color: #aee0c8;
+}
+
+.auto-rotate-row input {
+  accent-color: #4bd8a3;
+}
+
 #seatList {
   display: flex;
   flex-direction: column;
@@ -270,55 +261,81 @@ body {
   gap: 8px;
 }
 
-#hud button {
+#toggleLogs {
+  position: absolute;
+  bottom: 190px;
+  right: 20px;
   padding: 4px 10px;
-  border: 1px solid #39404f;
+  background: #222;
+  border: 1px solid #555;
+  color: #ccc;
   border-radius: 4px;
-  background: #1f2229;
-  color: #8fffd1;
   cursor: pointer;
-  font-family: inherit;
+  z-index: 140;
 }
 
-#hud button:hover {
-  background: #2b303a;
+#toggleLogs:hover {
+  background: #2e2e2e;
 }
 
-#logDrawer {
-  position: fixed;
-  left: 10px;
-  right: 10px;
-  bottom: 44px;
-  background: #10131a;
-  border: 1px solid #2c3240;
-  border-radius: 6px;
-  padding: 10px 12px;
-  max-height: 200px;
-  overflow: hidden;
-  color: #cfd7ff;
-  z-index: 110;
-}
-
-.log-title {
-  font-weight: 600;
-  margin-bottom: 6px;
-  letter-spacing: 0.02em;
-}
-
-.log-content {
-  max-height: 150px;
+#councilLogs {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: 180px;
   overflow-y: auto;
+  background: rgba(10, 10, 10, 0.9);
+  border-top: 1px solid #222;
+  color: #00ff99;
   font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.8em;
+  font-size: 12px;
+  display: none;
+  z-index: 130;
+  padding: 6px 12px;
+  box-sizing: border-box;
 }
 
-.log-entry {
-  padding: 2px 0;
-  border-bottom: 1px solid rgba(143, 255, 209, 0.1);
+#councilLogs.visible {
+  display: block;
 }
 
-.log-entry:last-child {
-  border-bottom: none;
+#seatStatus {
+  position: absolute;
+  top: 35px;
+  right: 20px;
+  background: rgba(20, 20, 20, 0.8);
+  border: 1px solid #333;
+  border-radius: 5px;
+  padding: 8px;
+  color: #ccc;
+  font-size: 13px;
+  z-index: 140;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.seatStat {
+  margin: 2px 0;
+}
+
+.seatStat.thinking {
+  color: #ffcc00;
+}
+
+.seatStat.coordinating {
+  color: #66ccff;
+}
+
+.seatStat.idle {
+  color: #00ff88;
+}
+
+.seatStat.offline {
+  color: #666;
 }
 
 body.harmonic-low {
@@ -331,10 +348,4 @@ body.harmonic-mid {
 
 body.harmonic-high {
   background-color: #343414;
-}
-
-#debugOverlay {
-  background: #000;
-  border-top-left-radius: 4px;
-  border: 1px solid #0f0;
 }

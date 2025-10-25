@@ -8,10 +8,10 @@ const seatSpan = createSpan('Seat: Idle');
 const topicSpan = createSpan('Topic: —');
 const entropySpan = createSpan('Entropy 0.00');
 const leadSpan = createSpan('Lead —');
-const ramSpan = createSpan('RAM 0.0%');
-const gpuSpan = createSpan('GPU n/a');
 const tokenSpan = createSpan('Tokens 0');
 const summarySpan = createSpan('Thinker —');
+const ramSpan = createSpan('RAM 0.0%');
+const gpuSpan = createSpan('GPU n/a');
 const modelsSpan = createSpan('Models: —');
 const updatedSpan = createSpan('Updated —');
 
@@ -30,29 +30,18 @@ metricsGroup.append(
 
 const controlsGroup = document.createElement('div');
 controlsGroup.className = 'hud-controls';
-const logToggle = document.createElement('button');
-logToggle.id = 'logToggle';
-logToggle.type = 'button';
-logToggle.textContent = 'Logs';
-controlsGroup.appendChild(logToggle);
-
 hud.append(metricsGroup, controlsGroup);
 document.body.appendChild(hud);
 
-const logDrawer = document.createElement('div');
-logDrawer.id = 'logDrawer';
-logDrawer.classList.add('hidden');
-const logTitle = document.createElement('div');
-logTitle.className = 'log-title';
-logTitle.textContent = 'Council System Log';
-const logContent = document.createElement('div');
-logContent.className = 'log-content';
-logDrawer.append(logTitle, logContent);
-document.body.appendChild(logDrawer);
+const logToggleBtn = document.getElementById('toggleLogs');
+const logPanel = document.getElementById('councilLogs');
+const seatStatusPanel = document.getElementById('seatStatus');
 
-logToggle.addEventListener('click', () => {
-  logDrawer.classList.toggle('hidden');
-});
+if (logToggleBtn && logPanel) {
+  logToggleBtn.addEventListener('click', () => {
+    logPanel.classList.toggle('visible');
+  });
+}
 
 if (window.CouncilAPI?.on) {
   window.CouncilAPI.on('seat-change', (role) => {
@@ -87,26 +76,18 @@ if (window.CouncilAPI?.on) {
       updateHarmonyBackdrop(entropyValue);
     }
   });
+}
 
-  window.CouncilAPI.on('system-log', (entry) => {
-    appendLogEntry(entry);
+if (window.CouncilAPI?.onSeatUpdate && seatStatusPanel) {
+  window.CouncilAPI.onSeatUpdate((seats) => {
+    if (!Array.isArray(seats) || !seats.length) {
+      seatStatusPanel.innerHTML = '<div class="seatStat offline">No seats active</div>';
+      return;
+    }
+    seatStatusPanel.innerHTML = seats
+      .map(({ name, state }) => `<div class="seatStat ${String(state).toLowerCase()}">${name}: ${state}</div>`)
+      .join('');
   });
-}
-
-function appendLogEntry(entry) {
-  if (!entry) return;
-  const line = document.createElement('div');
-  line.className = 'log-entry';
-  line.textContent = entry;
-  logContent.appendChild(line);
-  logContent.scrollTop = logContent.scrollHeight;
-  trimLog();
-}
-
-function trimLog(maxEntries = 100) {
-  while (logContent.children.length > maxEntries) {
-    logContent.removeChild(logContent.firstChild);
-  }
 }
 
 function createSpan(text) {
