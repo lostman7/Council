@@ -514,15 +514,58 @@ function resolveDisplayModel(role, cfg) {
 }
 
 async function ensureModelChoice(role, candidate) {
-  let selected = getAvailableModel(candidate || DEFAULT_MODELS[role] || FALLBACK_MODEL, role);
+  let selected = getAvailableModel(
+    candidate || DEFAULT_MODELS[role] || FALLBACK_MODEL,
+    role
+  );
+
+  const isThinker = role === THINKER_ROLE;
 
   try {
     const available = await listOllamaModels();
-    if (available.length && !available.includes(selected)) {
+    if (!available.length) {
+      return selected;
+    }
+
+    if (isThinker) {
+      const embeddings = getEmbeddingPool();
+      const installedEmbedding = embeddings.find((model) => available.includes(model));
+
+      if (installedEmbedding) {
+        if (selected !== installedEmbedding) {
+          trace('Seat', 'model.fallback', {
+            role,
+            from: selected,
+            to: installedEmbedding,
+            reason: 'embedding-unavailable'
+          });
+          console.warn(
+            `[COUNCIL] Seat '${role}' model '${selected}' unavailable → ${installedEmbedding}`
+          );
+          selected = installedEmbedding;
+        }
+      } else if (!embeddings.includes(selected)) {
+        // No embeddings are currently installed, so stick with the configured
+        // option but keep it constrained to the first embedding in the pool.
+        const fallback = embeddings[0] || 'qwen3-embedding:0.6b';
+        trace('Seat', 'model.fallback', {
+          role,
+          from: selected,
+          to: fallback,
+          reason: 'no-embeddings-installed'
+        });
+        console.warn(
+          `[COUNCIL] Seat '${role}' has no embeddings installed — defaulting to ${fallback}`
+        );
+        selected = fallback;
+      }
+    } else if (!available.includes(selected)) {
       const fallbackCandidate = available.find((model) => !MODEL_BLACKLIST.has(model));
       const fallback = getAvailableModel(fallbackCandidate || FALLBACK_MODEL, role);
       trace('Seat', 'model.fallback', { role, from: selected, to: fallback });
-      console.warn(`[COUNCIL] Seat '${role}' model '${selected}' unavailable → ${fallback}`);
+      console.warn(
+        `[COUNCIL] Seat '${role}' model '${selected}' unavailable → ${fallback}`
+      );
       selected = fallback;
     }
   } catch (err) {
