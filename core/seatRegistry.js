@@ -4,12 +4,22 @@ import path from 'path';
 
 const PERSONA_DIR = path.join(process.cwd(), 'personas');
 const CONFIG_PATH = path.join(os.homedir(), '.council_config.json');
-const DEFAULT_MODELS = {
+export const DEFAULT_MODELS = {
   Physicist: 'llama3.2:3b',
   Engineer: 'deepscaler:1.5b',
   Linguist: 'cogito:3b',
   Thinker: 'qwen:1.8b',
   Navigator: 'glm-4.6:cloud',
+  Doctor: 'llama3.2:3b',
+  Surgeon: 'llama3.2:3b',
+  Machinist: 'qwen2.5-coder:1.5b',
+  Architect: 'glm-4.6:cloud',
+  Historian: 'qwen3-embedding:0.6b',
+  Philosopher: 'glm-4.6:cloud',
+  Artist: 'cogito:3b',
+  Diplomat: 'deepscaler:1.5b',
+  Strategist: 'deepscaler:1.5b',
+  OpenMind: 'llama3.2:3b',
   Throne: 'llama3-groq-tool-use:8b'
 };
 
@@ -52,8 +62,14 @@ export async function loadSeatRegistry() {
       const payload = await fs.readJson(path.join(PERSONA_DIR, file));
       const variants = Array.isArray(payload) ? payload : [];
       const saved = savedSeats[role] || {};
+      const defaultModel = DEFAULT_MODELS[role] || null;
+      const manualModel = typeof saved.model === 'string' && saved.model.trim() ? saved.model.trim() : null;
+      const manualOverride = manualModel && (!defaultModel || manualModel !== defaultModel);
+      const rotationEnabled = saved.rotation !== undefined ? Boolean(saved.rotation) : !manualOverride;
       registry[role] = {
-        model: saved.model || DEFAULT_MODELS[role] || 'llama3.2:3b',
+        model: manualOverride ? manualModel : null,
+        defaultModel,
+        rotation: rotationEnabled,
         enabled: saved.enabled !== undefined ? Boolean(saved.enabled) : true,
         variants
       };
@@ -65,7 +81,9 @@ export async function loadSeatRegistry() {
   // ensure Throne exists even if no persona file
   if (!registry.Throne) {
     registry.Throne = {
-      model: DEFAULT_MODELS.Throne,
+      model: null,
+      defaultModel: DEFAULT_MODELS.Throne,
+      rotation: true,
       enabled: true,
       variants: []
     };
@@ -83,8 +101,9 @@ export async function saveSeatPreferences(seatConfigs) {
   const serialisable = {};
   for (const [name, cfg] of Object.entries(seatConfigs)) {
     serialisable[name] = {
-      model: cfg.model,
-      enabled: cfg.enabled !== false
+      model: cfg.model || null,
+      enabled: cfg.enabled !== false,
+      rotation: cfg.rotation !== false
     };
   }
   const next = { ...existing, seats: serialisable };

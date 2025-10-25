@@ -4,10 +4,39 @@
 
 import { callModel } from './dispatcher.js';
 import { loadPersona } from './personas.js';
-import { loadSeatRegistry, saveSeatPreferences } from './seatRegistry.js';
+import { loadSeatRegistry, saveSeatPreferences, DEFAULT_MODELS } from './seatRegistry.js';
+
+const MODEL_POOLS = {
+  Physicist: ['deepseek-r1:1.5b', 'sequoia-1b', 'qwen3:1.7b'],
+  Engineer: ['qwen2.5-coder:1.5b', 'qwen2.5-coder:0.5b', 'tinydolphin:1.1b'],
+  Linguist: ['cogito:3b', 'gpt-oss-mini:2.0b', 'qwen3:0.6b'],
+  Thinker: ['llama3.2:3b', 'cogito:3b'],
+  Navigator: ['tinydolphin:1.1b', 'deepseek-r1:1.5b', 'qwen3:1.7b'],
+  Doctor: ['llama3.2:3b', 'deepseek-r1:1.5b', 'qwen3:1.7b'],
+  Surgeon: ['llama3.2:3b', 'glm-4.6:cloud', 'qwen3:1.7b'],
+  Machinist: ['qwen2.5-coder:1.5b', 'tinydolphin:1.1b', 'deepseek-r1:1.5b'],
+  Architect: ['glm-4.6:cloud', 'llama3.2:3b', 'qwen3:1.7b'],
+  Historian: ['qwen3-embedding:0.6b', 'llama3.2:3b', 'deepseek-r1:1.5b'],
+  Philosopher: ['glm-4.6:cloud', 'llama3.2:3b', 'qwen3:1.7b'],
+  Artist: ['cogito:3b', 'llama3.2:3b', 'qwen3:1.7b'],
+  Diplomat: ['deepscaler:1.5b', 'glm-4.6:cloud', 'qwen3:1.7b'],
+  Strategist: ['deepscaler:1.5b', 'llama3.2:3b', 'qwen3:1.7b'],
+  OpenMind: ['llama3.2:3b', 'deepseek-r1:1.5b', 'cogito:3b'],
+  Throne: ['llama3-groq-tool-use:8b']
+};
+
+const POOL_LOOKUP = Object.fromEntries(
+  Object.entries(MODEL_POOLS).map(([role, models]) => [role.toLowerCase(), models])
+);
 
 let seatConfigs = {
-  Throne: { model: 'llama3-groq-tool-use:8b', enabled: true, variants: [] }
+  Throne: {
+    model: 'llama3-groq-tool-use:8b',
+    defaultModel: 'llama3-groq-tool-use:8b',
+    enabled: true,
+    rotation: true,
+    variants: []
+  }
 };
 let initializationPromise = null;
 let initialized = false;
@@ -48,10 +77,13 @@ export function getSeatConfig(name) {
 export function getAllSeatConfigs() {
   const result = {};
   for (const [name, cfg] of Object.entries(seatConfigs)) {
+    const rotationEnabled = cfg.rotation !== false;
     result[name] = {
-      model: cfg.model,
+      model: resolveDisplayModel(name, cfg),
       enabled: cfg.enabled !== false,
-      variants: Array.isArray(cfg.variants) ? cfg.variants.length : 0
+      variants: Array.isArray(cfg.variants) ? cfg.variants.length : 0,
+      rotation: rotationEnabled,
+      defaultModel: cfg.defaultModel || DEFAULT_MODELS[name] || null
     };
   }
   return result;
@@ -60,13 +92,27 @@ export function getAllSeatConfigs() {
 export function resetSeats(newMap = {}) {
   for (const [name, cfg] of Object.entries(newMap)) {
     if (!seatConfigs[name]) {
-      seatConfigs[name] = { model: cfg.model, enabled: cfg.enabled !== false, variants: [] };
+      seatConfigs[name] = {
+        model: cfg.model ?? null,
+        defaultModel: cfg.defaultModel ?? (DEFAULT_MODELS[name] || null),
+        enabled: cfg.enabled !== false,
+        rotation: cfg.rotation !== false,
+        variants: []
+      };
     } else {
-      if (cfg.model) {
-        seatConfigs[name].model = cfg.model;
+      if (cfg.model !== undefined) {
+        seatConfigs[name].model = cfg.model || null;
       }
       if (cfg.enabled !== undefined) {
         seatConfigs[name].enabled = Boolean(cfg.enabled);
+      }
+      if (cfg.rotation !== undefined) {
+        seatConfigs[name].rotation = Boolean(cfg.rotation);
+      }
+      if (cfg.defaultModel !== undefined) {
+        seatConfigs[name].defaultModel = cfg.defaultModel || seatConfigs[name].defaultModel || null;
+      } else if (!seatConfigs[name].defaultModel) {
+        seatConfigs[name].defaultModel = DEFAULT_MODELS[name] || null;
       }
     }
   }
@@ -74,11 +120,29 @@ export function resetSeats(newMap = {}) {
 }
 
 export function updateSeatModel(name, model) {
-  if (!name || !model) return;
+  if (!name) return;
   if (!seatConfigs[name]) {
-    seatConfigs[name] = { model, enabled: true, variants: [] };
+    const initialModel = typeof model === 'string' ? model.trim() : '';
+    seatConfigs[name] = {
+      model: initialModel || null,
+      defaultModel: DEFAULT_MODELS[name] || null,
+      enabled: true,
+      rotation: !initialModel,
+      variants: []
+    };
   } else {
-    seatConfigs[name].model = model;
+    const trimmed = typeof model === 'string' ? model.trim() : '';
+    if (trimmed) {
+      seatConfigs[name].model = trimmed;
+      seatConfigs[name].rotation = false;
+    } else {
+      seatConfigs[name].model = null;
+      seatConfigs[name].rotation = true;
+    }
+    if (!seatConfigs[name].defaultModel) {
+      seatConfigs[name].defaultModel = DEFAULT_MODELS[name] || seatConfigs[name].defaultModel || null;
+    }
+    seatConfigs[name].poolIndex = 0;
   }
   persistSeatPreferences();
   console.log(`[Council] Seat updated: ${name} → ${model}`);
@@ -86,7 +150,13 @@ export function updateSeatModel(name, model) {
 
 export function setSeatEnabled(name, enabled) {
   if (!seatConfigs[name]) {
-    seatConfigs[name] = { model: 'llama3.2:3b', enabled: Boolean(enabled), variants: [] };
+    seatConfigs[name] = {
+      model: null,
+      defaultModel: DEFAULT_MODELS[name] || null,
+      enabled: Boolean(enabled),
+      rotation: true,
+      variants: []
+    };
   } else {
     seatConfigs[name].enabled = Boolean(enabled);
   }
@@ -105,7 +175,7 @@ export async function spawnSeat(role, prompt, { modelOverride, messages, systemP
   }
 
   const persona = loadPersonaSafe(role);
-  const model = modelOverride || config.model || 'llama3.2:3b';
+  const selectedModel = selectModelForSeat(role, config, modelOverride);
   const systemParts = [systemPrompt || `You are the ${role} of the Council.`];
 
   if (persona?.tone) {
@@ -122,8 +192,8 @@ export async function spawnSeat(role, prompt, { modelOverride, messages, systemP
         { role: 'user', content: prompt || persona?.seed || '' }
       ];
 
-  const result = await callModel({ model, messages: chat });
-  return { ...result, persona };
+  const result = await callModel({ model: selectedModel, messages: chat });
+  return { ...result, persona, model: selectedModel };
 }
 
 function loadPersonaSafe(role) {
@@ -137,4 +207,81 @@ function loadPersonaSafe(role) {
 
 function persistSeatPreferences() {
   void saveSeatPreferences(snapshotConfigs());
+}
+
+function resolveDisplayModel(role, cfg) {
+  if (cfg?.rotation === false && cfg?.model) {
+    return cfg.model;
+  }
+  if (cfg?.model) {
+    return cfg.model;
+  }
+  if (cfg?.lastModel) {
+    return cfg.lastModel;
+  }
+  const pool = getModelPool(role);
+  if (pool?.length) {
+    return pool[0];
+  }
+  if (cfg?.defaultModel) {
+    return cfg.defaultModel;
+  }
+  return DEFAULT_MODELS[role] || 'llama3.2:3b';
+}
+
+function getModelPool(role) {
+  if (!role) return null;
+  return POOL_LOOKUP[role.toLowerCase()] || null;
+}
+
+function takeNextModelFromPool(role, config) {
+  const pool = getModelPool(role);
+  if (!pool || !pool.length) {
+    return null;
+  }
+  const index = Math.max(0, config?.poolIndex ?? 0) % pool.length;
+  const next = pool[index];
+  if (config) {
+    config.poolIndex = (index + 1) % pool.length;
+  }
+  return next;
+}
+
+function selectModelForSeat(role, config, override) {
+  if (override) {
+    return override;
+  }
+
+  const rotationEnabled = config?.rotation !== false;
+  let model = null;
+
+  if (rotationEnabled) {
+    model = takeNextModelFromPool(role, config);
+  }
+
+  if (!model) {
+    const manual = config?.model;
+    if (manual && manual.trim()) {
+      model = manual.trim();
+    }
+  }
+
+  if (!model) {
+    model =
+      takeNextModelFromPool(role, config) ||
+      config?.defaultModel ||
+      DEFAULT_MODELS[role] ||
+      'llama3.2:3b';
+  }
+
+  if (config) {
+    config.lastModel = model;
+  }
+
+  console.log(`[COUNCIL] Seat '${role}' assigned model → ${model}`);
+  return model;
+}
+
+export function pickModelForSeat(role) {
+  return takeNextModelFromPool(role, seatConfigs[role] || {});
 }
