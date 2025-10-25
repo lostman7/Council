@@ -276,16 +276,16 @@ body {
 
 #hud-container {
   position: fixed;
-  bottom: 12px;
-  right: 20px;
+  bottom: 4px;
+  right: 12px;
   left: auto;
   background: #0e0e16;
   border: 1px solid #222;
   border-radius: 4px;
-  transition: transform 0.3s ease, opacity 0.3s ease;
-  z-index: 130;
+  transition: transform 0.3s ease;
+  z-index: 100;
   font-family: 'IBM Plex Mono', monospace;
-  padding: 8px 10px 6px 8px;
+  padding: 4px 8px;
   color: #88ff88;
   display: flex;
   align-items: center;
