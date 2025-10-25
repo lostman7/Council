@@ -26,6 +26,7 @@ import {
 import { loadContinuumState } from './core/continuum_recall.js';
 import { toggleAutoRotation, isAutoRotationEnabled } from './core/rotation.js';
 import { exportCouncilLog } from './core/exporter.js';
+import { getSafeMode, setSafeMode } from './core/dispatcher.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -202,6 +203,19 @@ ipcMain.on('saveSettings', (_, config) => {
   if (win) {
     const stamp = new Date().toLocaleTimeString();
     win.webContents.send('system-log', `[${stamp}] Settings updated.`);
+  }
+});
+
+ipcMain.on('get-safe-mode', (event) => {
+  event.sender.send('safe-mode-state', getSafeMode());
+});
+
+ipcMain.on('toggle-safe-mode', (_event, enabled) => {
+  const state = setSafeMode(Boolean(enabled));
+  if (win) {
+    const stamp = new Date().toLocaleTimeString();
+    win.webContents.send('system-log', `[${stamp}] Safe Mode: ${state ? 'ON' : 'OFF'}`);
+    win.webContents.send('safe-mode-state', state);
   }
 });
 

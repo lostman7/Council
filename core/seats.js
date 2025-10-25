@@ -4,28 +4,12 @@
 
 import fs from 'fs-extra';
 import path from 'path';
-import { callModel, listOllamaModels, DEFAULT_CLOUD_BLACKLIST } from './dispatcher.js';
+import { callModel, listOllamaModels } from './dispatcher.js';
+import { trace } from './trace.js';
 import { loadPersona } from './personas.js';
 import { loadSeatRegistry, saveSeatPreferences, DEFAULT_MODELS } from './seatRegistry.js';
 
-const CONFIG_BLACKLIST_PATH = path.resolve('config/blacklist.json');
 const FALLBACK_MODEL = 'llama3.2:3b';
-
-const ensureBlacklistFile = (() => {
-  let initialised = false;
-  return () => {
-    if (initialised) return;
-    initialised = true;
-    try {
-      fs.ensureDirSync(path.dirname(CONFIG_BLACKLIST_PATH));
-      if (!fs.existsSync(CONFIG_BLACKLIST_PATH)) {
-        fs.writeJsonSync(CONFIG_BLACKLIST_PATH, DEFAULT_CLOUD_BLACKLIST, { spaces: 2 });
-      }
-    } catch (err) {
-      console.warn('[Council Seats] Unable to prepare blacklist file:', err.message);
-    }
-  };
-})();
 
 const MODEL_POOLS = {
   Physicist: ['deepseek-r1:1.5b', 'sequoia-1b', 'qwen3:1.7b'],
@@ -68,6 +52,8 @@ async function ensureInitialized() {
     initializationPromise = loadSeatRegistry().then((registry) => {
       seatConfigs = registry;
       initialized = true;
+      trace('Seats', 'registry.loaded', { count: Object.keys(seatConfigs).length });
+      return seatConfigs;
     });
   }
   await initializationPromise;
@@ -142,17 +128,16 @@ export function resetSeats(newMap = {}) {
 
 export function updateSeatModel(name, model) {
   if (!name) return;
+  const trimmed = typeof model === 'string' ? model.trim() : '';
   if (!seatConfigs[name]) {
-    const initialModel = typeof model === 'string' ? model.trim() : '';
     seatConfigs[name] = {
-      model: initialModel || null,
+      model: trimmed || null,
       defaultModel: DEFAULT_MODELS[name] || null,
       enabled: true,
-      rotation: !initialModel,
+      rotation: !trimmed,
       variants: []
     };
   } else {
-    const trimmed = typeof model === 'string' ? model.trim() : '';
     if (trimmed) {
       seatConfigs[name].model = trimmed;
       seatConfigs[name].rotation = false;
@@ -166,6 +151,7 @@ export function updateSeatModel(name, model) {
     seatConfigs[name].poolIndex = 0;
   }
   persistSeatPreferences();
+  trace('Seats', 'update', { seat: name, model: trimmed || null });
   console.log(`[Council] Seat updated: ${name} → ${model}`);
 }
 
@@ -182,13 +168,18 @@ export function setSeatEnabled(name, enabled) {
     seatConfigs[name].enabled = Boolean(enabled);
   }
   persistSeatPreferences();
+  trace('Seats', 'enabled', { seat: name, enabled: Boolean(enabled) });
 }
 
 export function isSeatEnabled(name) {
   return seatConfigs[name]?.enabled !== false;
 }
 
-export async function spawnSeat(role, prompt, { modelOverride, messages, systemPrompt } = {}) {
+export async function spawnSeat(
+  role,
+  prompt,
+  { modelOverride, messages, systemPrompt, intent } = {}
+) {
   await ensureInitialized();
   const config = seatConfigs[role];
   if (!config || config.enabled === false) {
@@ -209,6 +200,9 @@ export async function spawnSeat(role, prompt, { modelOverride, messages, systemP
   if (persona?.seed) {
     systemParts.push(`Persona directive: ${persona.seed}`);
   }
+  if (intent) {
+    systemParts.push(`Intent: ${intent}`);
+  }
 
   const chat = Array.isArray(messages) && messages.length
     ? messages
@@ -217,7 +211,9 @@ export async function spawnSeat(role, prompt, { modelOverride, messages, systemP
         { role: 'user', content: prompt || persona?.seed || '' }
       ];
 
+  trace('Seat', 'spawn', { role, model: selectedModel, intent: intent || null });
   const result = await callModel({ model: selectedModel, messages: chat });
+  trace('Seat', 'reply', { role, bytes: result?.text ? result.text.length : 0 });
   return { ...result, persona, model: selectedModel };
 }
 
@@ -225,7 +221,9 @@ function loadPersonaSafe(role) {
   try {
     return loadPersona(role);
   } catch (err) {
-    console.warn(`[Persona] ${role} using default persona — ${err.message}`);
+    const message = err?.message || String(err);
+    trace('Persona', 'default', { role, err: message });
+    console.warn(`[Persona] ${role} using default persona — ${message}`);
     return null;
   }
 }
@@ -303,6 +301,7 @@ function selectModelForSeat(role, config, override) {
     config.lastModel = model;
   }
 
+  trace('Seat', 'model.select', { role, model });
   console.log(`[COUNCIL] Seat '${role}' assigned model → ${model}`);
   return model;
 }
@@ -311,33 +310,21 @@ export function pickModelForSeat(role) {
   return takeNextModelFromPool(role, seatConfigs[role] || {});
 }
 
-function loadBlacklist() {
-  ensureBlacklistFile();
-  try {
-    const payload = fs.readJsonSync(CONFIG_BLACKLIST_PATH);
-    return Array.isArray(payload) ? payload : DEFAULT_CLOUD_BLACKLIST;
-  } catch (err) {
-    console.warn('[Council Seats] Failed to read blacklist:', err.message);
-    return DEFAULT_CLOUD_BLACKLIST;
-  }
-}
-
 async function ensureModelChoice(role, candidate) {
-  const blacklist = loadBlacklist();
   let selected = candidate || DEFAULT_MODELS[role] || FALLBACK_MODEL;
 
-  if (blacklist.some((blocked) => selected.includes(blocked))) {
-    console.warn(`[COUNCIL] Seat '${role}' model '${selected}' is blacklisted → using fallback ${FALLBACK_MODEL}`);
-    selected = DEFAULT_MODELS[role] || FALLBACK_MODEL;
-  }
-
-  const available = await listOllamaModels();
-  if (available.length && !available.includes(selected)) {
-    const fallback = available.includes(FALLBACK_MODEL)
-      ? FALLBACK_MODEL
-      : available[0] || FALLBACK_MODEL;
-    console.warn(`[COUNCIL] Seat '${role}' model '${selected}' unavailable → ${fallback}`);
-    selected = fallback;
+  try {
+    const available = await listOllamaModels();
+    if (available.length && !available.includes(selected)) {
+      const fallback = available.includes(FALLBACK_MODEL)
+        ? FALLBACK_MODEL
+        : available[0] || FALLBACK_MODEL;
+      trace('Seat', 'model.fallback', { role, from: selected, to: fallback });
+      console.warn(`[COUNCIL] Seat '${role}' model '${selected}' unavailable → ${fallback}`);
+      selected = fallback;
+    }
+  } catch (err) {
+    trace('Seat', 'model.check.error', { role, err: err?.message || String(err) });
   }
 
   return selected;

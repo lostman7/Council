@@ -15,6 +15,9 @@ function ensureDrawer() {
       <h3>Council Options</h3>
       <button id="closeOptionsDrawer">×</button>
     </div>
+    <label class="safe-mode-row">
+      <input type="checkbox" id="safeModeToggle" /> Safe Mode (blacklist cloud)
+    </label>
     <label class="auto-rotate-row">
       <input type="checkbox" id="autoRotateToggle" checked /> Auto-rotate Seats
     </label>
@@ -33,6 +36,7 @@ optionsBtn.onclick = () => {
   ensureDrawer();
   drawer.classList.toggle('hidden');
   window.CouncilAPI.getSeats();
+  window.CouncilAPI.getSafeMode?.();
 };
 
 // Render the seat list when main replies
@@ -75,6 +79,16 @@ window.CouncilAPI.on('auto-rotate-state', (state) => {
   }
 });
 
+if (window.CouncilAPI?.onSafeMode) {
+  window.CouncilAPI.onSafeMode((state) => {
+    ensureDrawer();
+    const toggle = drawer.querySelector('#safeModeToggle');
+    if (toggle) {
+      toggle.checked = Boolean(state);
+    }
+  });
+}
+
 window.CouncilAPI.on('seats-updated', ({ name, model, enabled }) => {
   ensureDrawer();
   if (model !== undefined) {
@@ -105,6 +119,12 @@ function handleDrawerChange(event) {
   if (target.matches('input.seat-toggle[data-seat]')) {
     window.CouncilAPI.setSeatEnabled(target.dataset.seat, target.checked);
     appendLog(`Seat ${target.dataset.seat} ${target.checked ? 'enabled' : 'disabled'}`);
+    return;
+  }
+
+  if (target.id === 'safeModeToggle') {
+    window.CouncilAPI.toggleSafeMode?.(target.checked);
+    appendLog(`Safe Mode ${target.checked ? 'enabled' : 'disabled'}`);
     return;
   }
 

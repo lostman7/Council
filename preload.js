@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('CouncilAPI', {
   updateSeat: (name, model) => ipcRenderer.send('update-seat', { name, model }),
   setSeatEnabled: (name, enabled) => ipcRenderer.send('set-seat-enabled', { name, enabled }),
   toggleAutoRotate: (enabled) => ipcRenderer.send('toggle-auto-rotate', Boolean(enabled)),
+  getSafeMode: () => ipcRenderer.send('get-safe-mode'),
+  toggleSafeMode: (enabled) => ipcRenderer.send('toggle-safe-mode', Boolean(enabled)),
 
   // Archive (already in your build)
   listArchive: () => ipcRenderer.send('list-archive'),
@@ -22,5 +24,7 @@ contextBridge.exposeInMainWorld('CouncilAPI', {
 
   // Generic "on" listeners
   on: (channel, fn) => ipcRenderer.on(channel, (_evt, payload) => fn(payload)),
-  onSeatUpdate: (fn) => ipcRenderer.on('seat-status', (_evt, payload) => fn(payload))
+  onSeatUpdate: (fn) => ipcRenderer.on('seat-status', (_evt, payload) => fn(payload)),
+  onSafeMode: (fn) => ipcRenderer.on('safe-mode-state', (_evt, state) => fn(state)),
+  onSystemLog: (fn) => ipcRenderer.on('system-log', (_evt, message) => fn(message))
 });

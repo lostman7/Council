@@ -1,148 +1,114 @@
-import fs from 'fs-extra';
+import fs from 'fs';
 import path from 'path';
+import { trace, logError } from './trace.js';
 
-const CHAT_URL = 'http://localhost:11434/api/chat';
-const GENERATE_URL = 'http://localhost:11434/api/generate';
-const TAGS_URL = 'http://localhost:11434/api/tags';
+const OLLAMA = 'http://localhost:11434';
+const CHAT_PATH = '/api/chat';
+const GEN_PATH = '/api/generate';
+const TAGS_PATH = '/api/tags';
 
-export const DEFAULT_CLOUD_BLACKLIST = ['gpt-oss:120b-cloud', 'glm-4.6:cloud'];
-const FALLBACK_MODEL = 'llama3.2:3b';
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 2000;
-const REQUEST_TIMEOUT_MS = 60_000;
+const CONFIG_DIR = path.join(process.cwd(), 'config');
+const MEMORY_DIR = path.join(process.cwd(), 'memory');
+const RUNTIME_FILE = path.join(CONFIG_DIR, 'runtime.json');
+export const EMBEDDING_CACHE_FILE = path.join(MEMORY_DIR, 'embeddings.json');
 
-const CONFIG_DIR = path.resolve('config');
-const LOGS_DIR = path.resolve('logs');
-const MEMORY_DIR = path.resolve('memory');
-const BLACKLIST_FILE = path.join(CONFIG_DIR, 'blacklist.json');
-const ERROR_LOG_FILE = path.join(LOGS_DIR, 'errors.json');
-const EMBEDDING_CACHE_FILE = path.join(MEMORY_DIR, 'embeddings.json');
+const CLOUD_BLACKLIST = new Set(['gpt-oss:120b-cloud', 'glm-4.6:cloud']);
 
-fs.ensureDirSync(CONFIG_DIR);
-fs.ensureDirSync(LOGS_DIR);
-fs.ensureDirSync(MEMORY_DIR);
-
-if (!fs.existsSync(BLACKLIST_FILE)) {
-  fs.writeJsonSync(BLACKLIST_FILE, DEFAULT_CLOUD_BLACKLIST, { spaces: 2 });
+try {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.mkdirSync(MEMORY_DIR, { recursive: true });
+} catch {
+  // ignore
 }
 
-if (!fs.existsSync(ERROR_LOG_FILE)) {
-  fs.writeJsonSync(ERROR_LOG_FILE, []);
+if (!fs.existsSync(RUNTIME_FILE)) {
+  fs.writeFileSync(RUNTIME_FILE, JSON.stringify({ safeMode: true }, null, 2));
 }
 
 if (!fs.existsSync(EMBEDDING_CACHE_FILE)) {
-  fs.writeJsonSync(EMBEDDING_CACHE_FILE, {});
+  fs.writeFileSync(EMBEDDING_CACHE_FILE, '{}');
 }
 
-function readBlacklist() {
+function readRuntime() {
   try {
-    const payload = fs.readJsonSync(BLACKLIST_FILE);
-    return Array.isArray(payload) ? payload : DEFAULT_CLOUD_BLACKLIST;
-  } catch (err) {
-    console.warn('[Dispatcher] Failed to read blacklist, using defaults:', err.message);
-    return DEFAULT_CLOUD_BLACKLIST;
+    return JSON.parse(fs.readFileSync(RUNTIME_FILE, 'utf8'));
+  } catch {
+    return { safeMode: true };
   }
 }
 
-function logError(message, data = {}) {
-  try {
-    const existing = fs.readJsonSync(ERROR_LOG_FILE);
-    const next = Array.isArray(existing) ? existing : [];
-    next.push({ time: new Date().toISOString(), message, data });
-    fs.writeJsonSync(ERROR_LOG_FILE, next, { spaces: 2 });
-  } catch (err) {
-    console.error('[Dispatcher] Failed to record error log:', err);
-  }
+function writeRuntime(next) {
+  fs.writeFileSync(RUNTIME_FILE, JSON.stringify(next, null, 2));
 }
 
-async function fetchWithTimeout(url, options, timeoutMs = REQUEST_TIMEOUT_MS) {
+export function getSafeMode() {
+  return Boolean(readRuntime().safeMode);
+}
+
+export function setSafeMode(enabled) {
+  const current = readRuntime();
+  current.safeMode = Boolean(enabled);
+  writeRuntime(current);
+  trace('System', 'safeMode.set', { enabled: current.safeMode });
+  return current.safeMode;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    return response;
+    return await fetch(url, { ...options, signal: controller.signal });
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timer);
   }
 }
 
-function messagesToPrompt(messages = []) {
-  return messages
-    .map(({ role, content }) => `${role || 'user'}: ${content}`)
-    .join('\n');
+const RETRY_DELAYS = [2000, 4000, 8000];
+
+function isBlacklisted(model) {
+  return CLOUD_BLACKLIST.has(String(model || '').trim());
 }
 
-async function listModels() {
-  try {
-    const res = await fetchWithTimeout(TAGS_URL, { method: 'GET' }, 15_000);
-    if (!res.ok) {
-      throw new Error(`Status ${res.status}`);
+async function callOllamaJson(pathname, body, preferChat = true) {
+  const url = `${OLLAMA}${pathname}`;
+
+  for (let attempt = 0; attempt < RETRY_DELAYS.length; attempt += 1) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        },
+        20000 + attempt * 5000
+      );
+
+      if (!response.ok) {
+        if (preferChat && response.status === 404) {
+          return callOllamaJson(GEN_PATH, body, false);
+        }
+
+        const text = await response.text();
+        throw new Error(`Model request failed ${response.status}: ${text.slice(0, 200)}`);
+      }
+
+      return await response.json();
+    } catch (err) {
+      const message = err?.message || String(err);
+      if (
+        err?.name === 'AbortError' ||
+        /fetch failed|Headers Timeout/i.test(message)
+      ) {
+        trace('Dispatcher', 'retry', { attempt, wait: RETRY_DELAYS[attempt] });
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+        continue;
+      }
+      throw err;
     }
-    const json = await res.json();
-    return Array.isArray(json?.models) ? json.models.map((item) => item.name) : [];
-  } catch (err) {
-    logError('Failed to list Ollama models', { error: err.message });
-    return [];
-  }
-}
-
-async function resolveModel(modelName) {
-  const blacklist = readBlacklist();
-  let candidate = modelName || FALLBACK_MODEL;
-  if (blacklist.some((blocked) => candidate.includes(blocked))) {
-    console.warn(`[COUNCIL] Skipping blacklisted model '${candidate}'`);
-    candidate = FALLBACK_MODEL;
   }
 
-  const available = await listModels();
-  if (available.length && !available.includes(candidate)) {
-    console.warn(`[COUNCIL] Model '${candidate}' not available → using fallback ${FALLBACK_MODEL}`);
-    candidate = available.includes(FALLBACK_MODEL) ? FALLBACK_MODEL : available[0] || FALLBACK_MODEL;
-  }
-
-  return candidate;
-}
-
-async function performChatRequest(model, messages, stream) {
-  const response = await fetchWithTimeout(
-    CHAT_URL,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, stream, messages })
-    },
-    REQUEST_TIMEOUT_MS
-  );
-
-  if (response.status === 404) {
-    const error = new Error('Chat endpoint unavailable');
-    error.status = 404;
-    throw error;
-  }
-
-  if (!response.ok) {
-    throw new Error(`Model request failed with status ${response.status}`);
-  }
-
-  return response.json();
-}
-
-async function performGenerateRequest(model, prompt, stream) {
-  const response = await fetchWithTimeout(
-    GENERATE_URL,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt, stream })
-    },
-    REQUEST_TIMEOUT_MS
-  );
-
-  if (!response.ok) {
-    throw new Error(`Generate request failed with status ${response.status}`);
-  }
-
-  return response.json();
+  throw new Error('Model request failed after retries');
 }
 
 export async function callModel({ model, messages, prompt, stream = false }) {
@@ -150,42 +116,56 @@ export async function callModel({ model, messages, prompt, stream = false }) {
     throw new Error('Model invocation requires a model and prompt or messages');
   }
 
-  let selectedModel = await resolveModel(model);
-  const messagePayload = Array.isArray(messages) ? messages : [];
-  const promptText = prompt || messagesToPrompt(messagePayload);
+  const safeMode = getSafeMode();
+  const chosen = String(model || '').trim();
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      let data;
-      try {
-        data = await performChatRequest(selectedModel, messagePayload, stream);
-      } catch (err) {
-        if (err.status === 404) {
-          data = await performGenerateRequest(selectedModel, promptText, stream);
-        } else {
-          throw err;
-        }
-      }
-
-      const text = data?.message?.content || data?.response || '(no reply)';
-      return { text, raw: data, model: selectedModel };
-    } catch (err) {
-      if (attempt === MAX_ATTEMPTS) {
-        logError('Model request failed', { model: selectedModel, error: err.message });
-        console.error('Model invocation error:', err);
-        return { text: '(seat offline)', raw: null, model: selectedModel };
-      }
-
-      console.warn(`[Dispatcher] Retry ${attempt}/${MAX_ATTEMPTS} after error: ${err.message}`);
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-    }
+  if (safeMode && isBlacklisted(chosen)) {
+    trace('Dispatcher', 'model.blacklisted', { model: chosen });
+    return callModel({ model: 'llama3.2:3b', messages, prompt, stream });
   }
 
-  return { text: '(seat offline)', raw: null, model: selectedModel };
+  const useChat = Array.isArray(messages) && messages.length > 0;
+  const effectiveModel = chosen || 'llama3.2:3b';
+  const body = useChat
+    ? { model: effectiveModel, stream: Boolean(stream), messages }
+    : { model: effectiveModel, prompt: prompt || '', stream: Boolean(stream) };
+
+  trace('Dispatcher', 'model.invoke', { model: body.model, api: useChat ? 'chat' : 'generate' });
+
+  try {
+    const data = await callOllamaJson(useChat ? CHAT_PATH : GEN_PATH, body, useChat);
+    const text = useChat
+      ? data?.message?.content ?? data?.message ?? ''
+      : data?.response ?? data?.message ?? '';
+
+    trace('Dispatcher', 'model.ok', { model: body.model, bytes: (text || '').length });
+    return { text, raw: data, model: body.model };
+  } catch (err) {
+    logError(err, { where: 'callModel', model: body.model });
+    trace('Dispatcher', 'model.error', { model: body.model, err: err?.message || String(err) });
+
+    if (safeMode && body.model !== 'llama3.2:3b') {
+      trace('Dispatcher', 'model.fallback', { to: 'llama3.2:3b' });
+      return callModel({ model: 'llama3.2:3b', messages, prompt, stream });
+    }
+
+    throw err;
+  }
 }
 
 export async function listOllamaModels() {
-  return listModels();
+  try {
+    const response = await fetchWithTimeout(`${OLLAMA}${TAGS_PATH}`, { method: 'GET' }, 15000);
+    if (!response.ok) {
+      throw new Error(`Status ${response.status}`);
+    }
+    const json = await response.json();
+    return Array.isArray(json?.models) ? json.models.map((item) => item.name) : [];
+  } catch (err) {
+    logError(err, { where: 'listOllamaModels' });
+    trace('Dispatcher', 'pool.error', { err: err?.message || String(err) });
+    return [];
+  }
 }
 
-export { EMBEDDING_CACHE_FILE, logError as logDispatcherError };
+export const logDispatcherError = logError;

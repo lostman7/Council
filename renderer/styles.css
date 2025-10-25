@@ -420,3 +420,58 @@ body.harmonic-mid {
 body.harmonic-high {
   background-color: #343414;
 }
+
+.safe-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+  margin-bottom: 8px;
+  color: #ffd28a;
+}
+
+.safe-mode-row input {
+  accent-color: #ffb64b;
+}
+
+.console-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(17, 17, 26, 0.95);
+  border-top: 1px solid #333;
+  max-height: 220px;
+  overflow: auto;
+  z-index: 50;
+  transition: max-height 0.2s ease;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  padding: 6px 10px;
+}
+
+.console-overlay.hidden {
+  max-height: 0;
+  overflow: hidden;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.console-toggle {
+  position: absolute;
+  bottom: 225px;
+  right: 8px;
+  padding: 3px 6px;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 3px;
+  color: #aaa;
+  cursor: pointer;
+  z-index: 51;
+  font-size: 0.75rem;
+}
+
+.console-toggle:hover {
+  color: #fff;
+  border-color: #666;
+}
