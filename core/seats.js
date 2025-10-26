@@ -214,6 +214,9 @@ export function getAllSeatConfigs() {
 }
 
 export function getAllowedModels(role) {
+  if (!role) {
+    return [];
+  }
   if (role === THINKER_ROLE) {
     const embeddings = sanitisePool(getEmbeddingPool());
     return embeddings.length ? embeddings : getEmbeddingPool();

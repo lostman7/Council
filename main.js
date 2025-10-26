@@ -213,8 +213,7 @@ ipcMain.on('seed', async (_evt, text) => {
 
 ipcMain.on('get-seats', (evt) => {
   evt.sender.send('seats-list', {
-    seats: seats.getAllSeatConfigs(),
-    allowedModels: seats.getAllowedModels()
+    seats: seats.getAllSeatConfigs()
   });
   evt.sender.send('auto-rotate-state', isAutoRotationEnabled());
 });
