@@ -2,14 +2,12 @@ import fs from 'fs-extra';
 import path from 'path';
 import { getConfig, saveConfig } from './config.js';
 import { traceLog } from './trace.js';
+import { callEmbeddingJson, getActiveBackend } from './dispatcher.js';
 
 const EMBEDDING_ALLOWLIST = [
   'qwen3-embedding:0.6b',
   'mxbai-embed-large:latest'
 ];
-
-const OLLAMA_BASE_URL = 'http://localhost:11434';
-const EMBEDDING_ENDPOINTS = ['/api/embed', '/api/embeddings'];
 
 const MEMORY_DIR = path.join(process.cwd(), 'memory');
 const CHUNK_DIR = path.join(MEMORY_DIR, 'chunked');
@@ -21,7 +19,6 @@ const VECTOR_CACHE_VERSION = 'v0.4.7';
 let availableEmbeddings = [];
 let activeEmbeddingModel = DEFAULT_EMBED_MODEL;
 let embeddingsInitialised = false;
-let activeEmbeddingEndpoint = EMBEDDING_ENDPOINTS[0];
 
 const DEFAULT_CACHE = () => ({
   version: VECTOR_CACHE_VERSION,
@@ -37,38 +34,6 @@ const DEFAULT_VECTOR_CONFIG = {
   thinkerActive: true,
   cachePath: VECTOR_CACHE_PATH
 };
-
-let embeddingEndpointDetected = false;
-
-async function detectEmbeddingEndpoint(testModel) {
-  for (const endpoint of EMBEDDING_ENDPOINTS) {
-    try {
-      const response = await fetch(`${OLLAMA_BASE_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: testModel, input: 'Council endpoint probe' }),
-        signal: AbortSignal.timeout(10_000)
-      });
-
-      const payload = await response.json();
-      const vector = normaliseEmbeddingPayload(payload);
-      if (Array.isArray(vector) && vector.length) {
-        if (activeEmbeddingEndpoint !== endpoint) {
-          traceLog(`[VectorOps] Detected embedding endpoint → ${endpoint}`);
-        }
-        activeEmbeddingEndpoint = endpoint;
-        embeddingEndpointDetected = true;
-        return;
-      }
-    } catch (err) {
-      // ignore and try next
-    }
-  }
-
-  traceLog('[VectorOps] No valid embedding endpoint detected; defaulting to /api/embed');
-  activeEmbeddingEndpoint = EMBEDDING_ENDPOINTS[0];
-  embeddingEndpointDetected = true;
-}
 
 function sanitiseEmbeddingModel(model) {
   const trimmed = typeof model === 'string' ? model.trim() : '';
@@ -90,7 +55,7 @@ export async function initVectorOps() {
   }
 
   try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    const response = await fetch('http://localhost:11434/api/tags');
     const payload = await response.json();
     const discovered = Array.isArray(payload?.models)
       ? payload.models.map((model) => model?.name).filter(Boolean)
@@ -111,9 +76,6 @@ export async function initVectorOps() {
   const config = await getConfig();
   activeEmbeddingModel = sanitiseEmbeddingModel(config.thinkerEmbedModel);
   await saveConfig({ thinkerEmbedModel: activeEmbeddingModel });
-  if (!embeddingEndpointDetected) {
-    await detectEmbeddingEndpoint(activeEmbeddingModel);
-  }
   embeddingsInitialised = true;
   return { models: [...availableEmbeddings], active: activeEmbeddingModel };
 }
@@ -248,58 +210,19 @@ function normaliseEmbeddingPayload(payload) {
 }
 
 async function requestEmbedding(model, text) {
-  const payload = { model, input: text };
-  if (!embeddingEndpointDetected) {
-    await detectEmbeddingEndpoint(model);
-  }
-  const endpoints = [
-    activeEmbeddingEndpoint,
-    ...EMBEDDING_ENDPOINTS.filter((endpoint) => endpoint !== activeEmbeddingEndpoint)
-  ];
-  let lastError = null;
-
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(`${OLLAMA_BASE_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(30_000)
-      });
-
-      if (!response.ok) {
-        if (endpoint === EMBEDDING_ENDPOINTS[0] && response.status === 404) {
-          lastError = new Error('Embed endpoint unavailable, falling back.');
-          if (activeEmbeddingEndpoint === endpoint && EMBEDDING_ENDPOINTS.length > 1) {
-            activeEmbeddingEndpoint = EMBEDDING_ENDPOINTS[1];
-            traceLog('[VectorOps] Switching embedding endpoint to /api/embeddings');
-          }
-          continue;
-        }
-        const textResponse = await response.text();
-        lastError = new Error(
-          `Embedding failed ${response.status}: ${textResponse.slice(0, 200)}`
-        );
-        continue;
-      }
-
-      const json = await response.json();
-      const vector = normaliseEmbeddingPayload(json);
-      if (!Array.isArray(vector) || !vector.length) {
-        lastError = new Error('Empty embedding returned from endpoint');
-        continue;
-      }
-      if (activeEmbeddingEndpoint !== endpoint) {
-        activeEmbeddingEndpoint = endpoint;
-        traceLog(`[VectorOps] Embedding endpoint confirmed → ${endpoint}`);
-      }
-      return vector;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
+  try {
+    const payload = await callEmbeddingJson(model, text);
+    const vector = normaliseEmbeddingPayload(payload);
+    if (!Array.isArray(vector) || !vector.length) {
+      throw new Error('Empty embedding returned from backend');
     }
+    return vector;
+  } catch (err) {
+    const backend = await getActiveBackend().catch(() => ({ name: 'Ollama' }));
+    const message = err instanceof Error ? err.message : String(err);
+    traceLog(`[VectorOps] ${backend.name} embedding error: ${message}`);
+    throw err instanceof Error ? err : new Error(message);
   }
-
-  throw lastError || new Error('Unable to obtain embedding');
 }
 
 function findCachedVector(text) {

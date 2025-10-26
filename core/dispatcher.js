@@ -69,7 +69,7 @@ function isBlacklisted(model) {
   return CLOUD_BLACKLIST.has(String(model || '').trim());
 }
 
-async function callOllamaJson(pathname, body, preferChat = true) {
+async function invokeOllamaJson(pathname, body, preferChat = true) {
   const url = `${OLLAMA}${pathname}`;
 
   for (let attempt = 0; attempt < RETRY_DELAYS.length; attempt += 1) {
@@ -86,7 +86,7 @@ async function callOllamaJson(pathname, body, preferChat = true) {
 
       if (!response.ok) {
         if (preferChat && response.status === 404) {
-          return callOllamaJson(GEN_PATH, body, false);
+          return invokeOllamaJson(GEN_PATH, body, false);
         }
 
         const text = await response.text();
@@ -133,7 +133,7 @@ export async function callModel({ model, messages, prompt, stream = false }) {
   trace('Dispatcher', 'model.invoke', { model: body.model, api: useChat ? 'chat' : 'generate' });
 
   try {
-    const data = await callOllamaJson(useChat ? CHAT_PATH : GEN_PATH, body, useChat);
+    const data = await invokeOllamaJson(useChat ? CHAT_PATH : GEN_PATH, body, useChat);
     const text = useChat
       ? data?.message?.content ?? data?.message ?? ''
       : data?.response ?? data?.message ?? '';
@@ -169,3 +169,131 @@ export async function listOllamaModels() {
 }
 
 export const logDispatcherError = logError;
+
+const EMBED_ENDPOINTS = ['/api/embed', '/api/embeddings'];
+let detectedEmbedEndpoint = EMBED_ENDPOINTS[0];
+let embedEndpointChecked = false;
+
+async function ensureEmbedEndpoint(model = 'qwen3-embedding:0.6b') {
+  if (embedEndpointChecked) return detectedEmbedEndpoint;
+  for (const endpoint of EMBED_ENDPOINTS) {
+    try {
+      const response = await fetchWithTimeout(
+        `${OLLAMA}${endpoint}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model, input: 'endpoint probe' })
+        },
+        10_000
+      );
+      if (!response.ok) {
+        if (endpoint === EMBED_ENDPOINTS[0] && response.status === 404) {
+          continue;
+        }
+        const text = await response.text();
+        trace('Dispatcher', 'embed.endpoint.error', {
+          endpoint,
+          status: response.status,
+          body: text.slice(0, 120)
+        });
+        continue;
+      }
+      const payload = await response.json();
+      const embedding = Array.isArray(payload?.embeddings)
+        ? payload.embeddings[0]
+        : Array.isArray(payload?.embedding)
+        ? payload.embedding
+        : Array.isArray(payload?.data)
+        ? payload.data[0]?.embedding
+        : null;
+      if (Array.isArray(embedding) && embedding.length) {
+        detectedEmbedEndpoint = endpoint;
+        embedEndpointChecked = true;
+        trace('Dispatcher', 'embed.endpoint.detected', { endpoint });
+        return detectedEmbedEndpoint;
+      }
+    } catch (err) {
+      trace('Dispatcher', 'embed.endpoint.retry', {
+        endpoint,
+        err: err?.message || String(err)
+      });
+    }
+  }
+  embedEndpointChecked = true;
+  return detectedEmbedEndpoint;
+}
+
+export async function callOllamaJson(payloadOrModel, prompt, options = {}) {
+  const preferChat =
+    typeof payloadOrModel === 'object' &&
+    payloadOrModel !== null &&
+    Array.isArray(payloadOrModel.messages) &&
+    payloadOrModel.messages.length > 0;
+
+  const body =
+    typeof payloadOrModel === 'string'
+      ? {
+          model: payloadOrModel,
+          prompt: prompt ?? '',
+          stream: Boolean(options.stream)
+        }
+      : { ...payloadOrModel };
+
+  if (!body || !body.model) {
+    throw new Error('callOllamaJson requires a model value');
+  }
+
+  return invokeOllamaJson(preferChat ? CHAT_PATH : GEN_PATH, body, preferChat);
+}
+
+export async function callEmbeddingJson(model, input) {
+  if (!model) {
+    throw new Error('callEmbeddingJson requires an embedding model');
+  }
+
+  const endpoint = await ensureEmbedEndpoint(model);
+  const endpoints = [
+    endpoint,
+    ...EMBED_ENDPOINTS.filter((entry) => entry !== endpoint)
+  ];
+
+  let lastError = null;
+  for (const current of endpoints) {
+    try {
+      const response = await fetchWithTimeout(
+        `${OLLAMA}${current}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model, input })
+        },
+        30_000
+      );
+
+      if (!response.ok) {
+        if (current === '/api/embed' && response.status === 404) {
+          continue;
+        }
+        const text = await response.text();
+        lastError = new Error(`Embedding failed ${response.status}: ${text.slice(0, 120)}`);
+        continue;
+      }
+
+      const payload = await response.json();
+      return payload;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  throw lastError || new Error('Embedding request failed');
+}
+
+export async function getActiveBackend() {
+  return {
+    name: 'Ollama',
+    type: 'ollama',
+    baseUrl: OLLAMA
+  };
+}

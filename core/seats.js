@@ -2,7 +2,9 @@
 // -------------------------------
 // Defines the Council seats, their models, and live update utilities.
 
-import { callModel, listOllamaModels } from './dispatcher.js';
+import fs from 'fs-extra';
+import path from 'path';
+import { callModel, listOllamaModels, callOllamaJson, getActiveBackend } from './dispatcher.js';
 import { trace, traceLog } from './trace.js';
 import { loadPersona } from './personas.js';
 import { loadSeatRegistry, saveSeatPreferences, DEFAULT_MODELS } from './seatRegistry.js';
@@ -15,6 +17,26 @@ import {
 } from './vectorOps.js';
 
 const FALLBACK_MODEL = 'llama3.2:3b';
+const SEAT_CACHE_PATH = path.join(process.cwd(), 'memory', 'seatCache.json');
+
+async function loadSeatCache() {
+  try {
+    return await fs.readJson(SEAT_CACHE_PATH);
+  } catch {
+    return {};
+  }
+}
+
+async function saveSeatCache(cache) {
+  await fs.ensureDir(path.dirname(SEAT_CACHE_PATH));
+  await fs.writeJson(SEAT_CACHE_PATH, cache, { spaces: 2 });
+}
+
+async function updateSeatCacheEntry(seatName, payload) {
+  const cache = await loadSeatCache();
+  cache[seatName] = { ...(cache[seatName] || {}), ...payload };
+  await saveSeatCache(cache);
+}
 
 export const MODEL_RUNTIME = {
   throne: 'cogito:3b',
@@ -422,6 +444,8 @@ export async function spawnSeat(
     config.lastModel = selectedModel;
   }
   const isThinker = role === THINKER_ROLE;
+  const backend = await getActiveBackend().catch(() => ({ name: 'Ollama', type: 'ollama' }));
+  traceLog(`[Council] Seat '${role}' using ${backend.name} (${selectedModel})`);
   trace('Seat', 'model.select', { role, model: selectedModel, override: Boolean(modelOverride) });
   console.log(`[COUNCIL] Seat '${role}' assigned model → ${selectedModel}`);
 
@@ -454,6 +478,11 @@ export async function spawnSeat(
     }
 
     trace('Seat', 'reply', { role, bytes: text.length });
+    await updateSeatCacheEntry(role, {
+      model: appliedModel,
+      backend: backend.name || 'Embeddings',
+      lastPrompt: prompt || persona?.seed || ''
+    });
     return { text, persona, model: appliedModel, vector };
   }
 
@@ -477,9 +506,41 @@ export async function spawnSeat(
       ];
 
   trace('Seat', 'spawn', { role, model: selectedModel, intent: intent || null });
-  const result = await callModel({ model: selectedModel, messages: chat });
-  trace('Seat', 'reply', { role, bytes: result?.text ? result.text.length : 0 });
-  return { ...result, persona, model: selectedModel };
+  let rawResponse;
+  try {
+    rawResponse = await callOllamaJson({ model: selectedModel, stream: false, messages: chat });
+  } catch (err) {
+    const message = err?.message || String(err);
+    trace('Seat', 'model.direct.error', { role, model: selectedModel, err: message });
+    const fallback = await callModel({ model: selectedModel, messages: chat });
+    await updateSeatCacheEntry(role, {
+      model: fallback?.model || selectedModel,
+      backend: backend.name,
+      lastPrompt: chat[chat.length - 1]?.content || prompt || ''
+    });
+    return { ...fallback, persona };
+  }
+
+  const textContent =
+    rawResponse?.message?.content ??
+    rawResponse?.choices?.[0]?.message?.content ??
+    rawResponse?.response ??
+    rawResponse?.text ??
+    '';
+
+  trace('Seat', 'reply', { role, bytes: textContent.length });
+  await updateSeatCacheEntry(role, {
+    model: selectedModel,
+    backend: backend.name,
+    lastPrompt: chat[chat.length - 1]?.content || prompt || ''
+  });
+
+  return {
+    text: textContent,
+    raw: rawResponse,
+    persona,
+    model: selectedModel
+  };
 }
 
 function loadPersonaSafe(role) {
