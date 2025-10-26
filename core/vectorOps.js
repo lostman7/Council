@@ -288,20 +288,33 @@ export async function searchEmbeddings(query, limit = 5) {
     return [];
   }
 
+  const queryVector = await embedText(trimmed);
+  return recallSimilar(queryVector, limit);
+}
+
+export async function recallSimilar(input, limit = 5) {
   const { data } = await loadCacheInternal();
   if (!Array.isArray(data.vectors) || !data.vectors.length) {
     return [];
   }
 
-  const queryVector = await embedText(trimmed);
-  if (!queryVector.length) {
+  let basisVector = Array.isArray(input) ? input : [];
+  if (!basisVector.length) {
+    const query = String(input ?? '').trim();
+    if (!query) {
+      return [];
+    }
+    basisVector = await embedText(query);
+  }
+
+  if (!Array.isArray(basisVector) || !basisVector.length) {
     return [];
   }
 
   return data.vectors
     .map((entry) => ({
       ...entry,
-      score: cosineSimilarity(queryVector, entry.vector)
+      score: cosineSimilarity(basisVector, entry.vector)
     }))
     .filter((entry) => Number.isFinite(entry.score))
     .sort((a, b) => b.score - a.score)
@@ -316,7 +329,7 @@ export const Thinker = {
     return embedText(input, model);
   },
   async recall(query) {
-    const matches = await searchEmbeddings(query);
+    const matches = await recallSimilar(query);
     traceLog(
       `[Thinker] Found ${matches.length} entries for "${String(query).slice(0, 48)}..."`
     );
