@@ -1,8 +1,10 @@
 import fs from 'fs-extra';
 import path from 'path';
 
-const CHUNK_DIR = path.join(process.cwd(), 'memory', 'chunked');
-const CHUNK_SIZE = 1000; // characters ~500 tokens
+const PROJECT_ROOT = process.cwd();
+const FLOWFIELD_DIR = path.join(PROJECT_ROOT, 'flowfield_docs');
+const CHUNK_DIR = path.join(PROJECT_ROOT, 'memory', 'chunked');
+const CHUNK_SIZE = 1000; // characters ≈ 500 tokens
 const CHUNK_OVERLAP = 200; // overlap for continuity
 
 async function ensureChunkDir() {
@@ -17,7 +19,9 @@ function chunkText(text, chunkSize = CHUNK_SIZE, overlap = CHUNK_OVERLAP) {
     const end = Math.min(start + chunkSize, text.length);
     const chunk = text.slice(start, end).trim();
     if (chunk.length > 0) chunks.push(chunk);
-    start = end - overlap;
+    if (end === text.length) break;
+    const nextStart = end - overlap;
+    start = nextStart > start ? nextStart : end;
   }
   return chunks;
 }
@@ -42,12 +46,19 @@ export async function chunkFile(filePath) {
   }
 }
 
-export async function chunkAllDocs(inputDir = path.join(process.cwd(), 'memory')) {
-  const files = (await fs.readdir(inputDir)).filter((f) => f.endsWith('.txt') || f.endsWith('.md'));
-  console.log(`[Chunker] Found ${files.length} text/markdown files`);
+export async function chunkAllDocs(inputDir = FLOWFIELD_DIR) {
+  const resolvedDir = path.isAbsolute(inputDir) ? inputDir : path.join(PROJECT_ROOT, inputDir);
+  const exists = await fs.pathExists(resolvedDir);
+  if (!exists) {
+    console.warn(`[Chunker] Directory not found: ${resolvedDir}`);
+    return [];
+  }
+
+  const files = (await fs.readdir(resolvedDir)).filter((f) => f.endsWith('.txt') || f.endsWith('.md'));
+  console.log(`[Chunker] Found ${files.length} text/markdown files in ${resolvedDir}`);
   const allChunks = [];
   for (const f of files) {
-    const filePath = path.join(inputDir, f);
+    const filePath = path.join(resolvedDir, f);
     const chunks = await chunkFile(filePath);
     allChunks.push(...chunks);
   }

@@ -49,7 +49,7 @@ const LOG_DIR = path.join(process.cwd(), 'logs');
 export async function initThrone(win) {
   await initializeSeatRegistry();
   await initRamdisk();
-  await chunkAllDocs(path.join(process.cwd(), 'memory'));
+  await chunkAllDocs();
   await initHarmony();
   syncThroneLog();
   activeSeat = 'Idle';
