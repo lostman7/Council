@@ -18,9 +18,6 @@ function ensureDrawer() {
     <label class="safe-mode-row">
       <input type="checkbox" id="safeModeToggle" /> Safe Mode (blacklist cloud)
     </label>
-    <label class="auto-rotate-row">
-      <input type="checkbox" id="autoRotateToggle" checked /> Auto-rotate Seats
-    </label>
     <div id="seatList"></div>
   `;
   document.body.appendChild(drawer);
@@ -47,7 +44,7 @@ window.CouncilAPI.on('seats-list', (payload) => {
 
   const data = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
   const seatMap = data.seats || (payload && !Array.isArray(payload) ? payload : {});
-  const globalAllowed = Array.isArray(data.allowedModels) ? data.allowedModels : [];
+  const globalAllowed = Array.isArray(data.pool) ? data.pool : [];
 
   if (!seatMap || Object.keys(seatMap).length === 0) {
     container.innerHTML = `<p style="color:#888;text-align:center;">
@@ -110,14 +107,6 @@ window.CouncilAPI.on('seats-list', (payload) => {
     container.appendChild(row);
   });
 
-});
-
-window.CouncilAPI.on('auto-rotate-state', (state) => {
-  ensureDrawer();
-  const toggle = drawer.querySelector('#autoRotateToggle');
-  if (toggle) {
-    toggle.checked = Boolean(state);
-  }
 });
 
 if (window.CouncilAPI?.onSafeMode) {
@@ -217,10 +206,6 @@ function handleDrawerChange(event) {
     return;
   }
 
-  if (target.id === 'autoRotateToggle') {
-    window.CouncilAPI.toggleAutoRotate(target.checked);
-    appendLog(`Auto-rotate ${target.checked ? 'enabled' : 'disabled'}`);
-  }
 }
 
 function appendLog(message) {

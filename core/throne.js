@@ -19,14 +19,12 @@ import { saveContinuumState } from './continuum_recall.js';
 import { initHarmony, tuneHarmony, dominantSeat, getHarmonicState } from './harmony.js';
 import { appendSeatTurn, getSeatHistory, clearSeatHistory } from './recorder.js';
 import { recordDriftSnapshot } from './synaptic_drift.js';
-import { autoRotateIfTriggered } from './rotation.js';
 import { emitSeatUpdate, resetSeatStates, broadcastNewSeed } from './telemetry.js';
 import { traceLog } from './trace.js';
 
 export const THRONE_LOG_LIMIT = 200;
 const SUMMARY_INTERVAL = 3;
-const SESSION_INTERVAL_MS = 60 * 1000;
-const MODEL_COOLDOWN_MS = 30 * 1000;
+const SESSION_INTERVAL_MS = 0;
 
 let activeSeat = 'Idle';
 let throneLog = [];
@@ -181,16 +179,6 @@ function scheduleCouncilLoop(win, delay = SESSION_INTERVAL_MS) {
     clearTimeout(loopTimer);
   }
   loopTimer = setTimeout(() => runCouncilLoop(win), Math.max(0, delay));
-}
-
-async function applyModelCooldown() {
-  if (!MODEL_COOLDOWN_MS) {
-    return;
-  }
-  traceLog(
-    `[Cooldown] Waiting ${(MODEL_COOLDOWN_MS / 1000).toFixed(1)}s before next model load`
-  );
-  await new Promise((resolve) => setTimeout(resolve, MODEL_COOLDOWN_MS));
 }
 
 async function onSeatComplete(seatName, _msg, win) {
@@ -367,9 +355,6 @@ export async function runCouncilLoop(win) {
 
       lastBaton = reply || baton;
 
-      if (index < seatNames.length - 1) {
-        await applyModelCooldown();
-      }
     }
 
     activeSeat = 'Idle';
@@ -409,8 +394,8 @@ export async function runCouncilLoop(win) {
     emitSeatUpdate('Throne', 'Idle');
   } finally {
     loopRunning = false;
-    if (sessionActive) {
-      scheduleCouncilLoop(win, SESSION_INTERVAL_MS);
+    if (sessionActive && pendingQueue.length) {
+      scheduleCouncilLoop(win, 0);
     }
   }
 }
@@ -464,7 +449,4 @@ function emitSystemLog(win, text) {
 async function handleCouncilMessage({ win, seatName, reply, persona, message }) {
   emitSeatUpdate(seatName, 'Idle', { icon: persona?.icon });
   await onSeatComplete(seatName, reply, win);
-  await autoRotateIfTriggered(message || reply, {
-    scheduleNextTurn: () => scheduleCouncilLoop(win, 0)
-  });
 }

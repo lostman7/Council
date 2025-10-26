@@ -12,7 +12,7 @@ const DEFAULTS = {
 };
 
 export const MEMORY_ALLOCATION = {
-  seatsMB: 30,
+  seatsMB: 10,
   throneMB: 200
 };
 
@@ -21,13 +21,38 @@ export const CONTEXT_WINDOW = {
   seat: 3000
 };
 
+async function writeConfigAtomic(filePath, payload) {
+  const dir = path.dirname(filePath);
+  await fs.ensureDir(dir);
+  const tmp = path.join(dir, `.${path.basename(filePath)}.tmp`);
+  await fs.writeJson(tmp, payload, { spaces: 2 });
+  await fs.move(tmp, filePath, { overwrite: true });
+}
+
+async function handleCorruptConfig(err) {
+  const message = err?.message || String(err);
+  console.warn('[Council Config] Failed to read ~/.council_config.json:', message);
+  try {
+    const backupName = `${CONF_PATH}.${Date.now()}.invalid`;
+    await fs.move(CONF_PATH, backupName, { overwrite: true });
+    console.warn('[Council Config] Corrupt configuration backed up to', backupName);
+  } catch (moveErr) {
+    console.warn('[Council Config] Unable to isolate corrupt config:', moveErr?.message || moveErr);
+  }
+}
+
 export async function getConfig() {
   try {
     const data = await fs.readJson(CONF_PATH);
     return { ...DEFAULTS, ...(data || {}) };
   } catch (err) {
-    if (err?.code !== 'ENOENT') {
-      console.warn('[Council Config] Failed to read ~/.council_config.json:', err.message || err);
+    if (err?.code === 'ENOENT') {
+      return { ...DEFAULTS };
+    }
+    if (err?.name === 'SyntaxError' || /Unexpected token|non-whitespace/i.test(err?.message || '')) {
+      await handleCorruptConfig(err);
+    } else {
+      console.warn('[Council Config] Failed to read ~/.council_config.json:', err?.message || err);
     }
     return { ...DEFAULTS };
   }
@@ -36,7 +61,6 @@ export async function getConfig() {
 export async function saveConfig(partial) {
   const current = await getConfig();
   const next = { ...DEFAULTS, ...current, ...partial };
-  await fs.ensureDir(path.dirname(CONF_PATH));
-  await fs.writeJson(CONF_PATH, next, { spaces: 2 });
+  await writeConfigAtomic(CONF_PATH, next);
   return next;
 }

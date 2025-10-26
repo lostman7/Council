@@ -175,19 +175,6 @@ body {
   font-weight: 600;
 }
 
-.auto-rotate-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9em;
-  margin-bottom: 12px;
-  color: #aee0c8;
-}
-
-.auto-rotate-row input {
-  accent-color: #4bd8a3;
-}
-
 #seatList {
   display: flex;
   flex-direction: column;

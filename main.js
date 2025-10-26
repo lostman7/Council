@@ -1,8 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
-import os from 'os';
 import {
   initThrone,
   startSession,
@@ -24,9 +22,9 @@ import {
   loadSession
 } from './core/continuum.js';
 import { loadContinuumState } from './core/continuum_recall.js';
-import { toggleAutoRotation, isAutoRotationEnabled } from './core/rotation.js';
 import { exportCouncilLog } from './core/exporter.js';
 import { getSafeMode, setSafeMode } from './core/dispatcher.js';
+import { saveConfig as persistConfig } from './core/config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -110,8 +108,6 @@ app.whenReady().then(async () => {
         );
       }
 
-      win.webContents.send('auto-rotate-state', isAutoRotationEnabled());
-
       if (recall) {
         const topicLabel = recall.topic || 'Unnamed Continuum';
         win.webContents.send(
@@ -151,25 +147,16 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-ipcMain.on('saveSettings', (_, config) => {
-  const confPath = path.join(os.homedir(), '.council_config.json');
-  let existing = {};
+ipcMain.on('saveSettings', async (_evt, config) => {
   try {
-    if (fs.existsSync(confPath)) {
-      existing = JSON.parse(fs.readFileSync(confPath, 'utf8')) || {};
+    await persistConfig(config || {});
+    console.log('Council settings saved via persistConfig');
+    if (win) {
+      const stamp = new Date().toLocaleTimeString();
+      win.webContents.send('system-log', `[${stamp}] Settings updated.`);
     }
   } catch (err) {
-    console.warn('Failed to read existing settings before save:', err.message);
-  }
-  const next = { ...existing, ...config };
-  if (existing.seats && !config?.seats) {
-    next.seats = existing.seats;
-  }
-  fs.writeFileSync(confPath, JSON.stringify(next, null, 2));
-  console.log('Council settings saved:', next);
-  if (win) {
-    const stamp = new Date().toLocaleTimeString();
-    win.webContents.send('system-log', `[${stamp}] Settings updated.`);
+    console.error('Failed to persist settings:', err);
   }
 });
 
@@ -211,11 +198,21 @@ ipcMain.on('seed', async (_evt, text) => {
   }
 });
 
-ipcMain.on('get-seats', (evt) => {
-  evt.sender.send('seats-list', {
-    seats: seats.getAllSeatConfigs()
-  });
-  evt.sender.send('auto-rotate-state', isAutoRotationEnabled());
+ipcMain.on('get-seats', async (evt) => {
+  try {
+    const pool = await refreshPool();
+    seats.updateModelPool(pool);
+    evt.sender.send('seats-list', {
+      seats: seats.getAllSeatConfigs(),
+      pool
+    });
+  } catch (err) {
+    console.error('get-seats error:', err);
+    evt.sender.send('seats-list', {
+      seats: seats.getAllSeatConfigs(),
+      pool: []
+    });
+  }
 });
 
 ipcMain.on('update-seat', (_evt, { name, model }) => {
@@ -239,13 +236,6 @@ ipcMain.on('set-seat-enabled', (_evt, { name, enabled }) => {
     }
   } catch (e) {
     console.error('set-seat-enabled error:', e);
-  }
-});
-
-ipcMain.on('toggle-auto-rotate', (_evt, enabled) => {
-  toggleAutoRotation(enabled);
-  if (win) {
-    win.webContents.send('auto-rotate-state', isAutoRotationEnabled());
   }
 });
 
@@ -293,6 +283,7 @@ function startTelemetryLoop() {
     lastStats = stats;
     const poolList = await refreshPool(forcePool);
     lastPool = poolList;
+    seats.updateModelPool(poolList);
     const poolSignature = poolList.join(',');
     if (poolSignature !== lastPoolSignature) {
       lastPoolSignature = poolSignature;

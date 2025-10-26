@@ -5,6 +5,7 @@ import { trace, logError } from './trace.js';
 const OLLAMA = 'http://localhost:11434';
 const CHAT_PATH = '/api/chat';
 const GEN_PATH = '/api/generate';
+const UNLOAD_PATH = '/api/unload';
 const TAGS_PATH = '/api/tags';
 
 const CONFIG_DIR = path.join(process.cwd(), 'config');
@@ -296,4 +297,23 @@ export async function getActiveBackend() {
     type: 'ollama',
     baseUrl: OLLAMA
   };
+}
+
+export async function unloadModel(model) {
+  const name = String(model || '').trim();
+  if (!name) return;
+  try {
+    await fetchWithTimeout(
+      `${OLLAMA}${UNLOAD_PATH}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: name })
+      },
+      10_000
+    );
+    trace('Dispatcher', 'model.unload', { model: name });
+  } catch (err) {
+    trace('Dispatcher', 'model.unload.error', { model: name, err: err?.message || String(err) });
+  }
 }

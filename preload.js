@@ -12,7 +12,6 @@ contextBridge.exposeInMainWorld('CouncilAPI', {
   getSeats: () => ipcRenderer.send('get-seats'),
   updateSeat: (name, model) => ipcRenderer.send('update-seat', { name, model }),
   setSeatEnabled: (name, enabled) => ipcRenderer.send('set-seat-enabled', { name, enabled }),
-  toggleAutoRotate: (enabled) => ipcRenderer.send('toggle-auto-rotate', Boolean(enabled)),
   getSafeMode: () => ipcRenderer.send('get-safe-mode'),
   toggleSafeMode: (enabled) => ipcRenderer.send('toggle-safe-mode', Boolean(enabled)),
 

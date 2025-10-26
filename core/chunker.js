@@ -54,11 +54,26 @@ export async function chunkAllDocs(inputDir = FLOWFIELD_DIR) {
     return [];
   }
 
-  const files = (await fs.readdir(resolvedDir)).filter((f) => f.endsWith('.txt') || f.endsWith('.md'));
-  console.log(`[Chunker] Found ${files.length} text/markdown files in ${resolvedDir}`);
+  const rootFiles = (await fs.readdir(resolvedDir)).filter((f) => f.endsWith('.txt') || f.endsWith('.md'));
+  const seatsDir = path.join(resolvedDir, 'seats');
+  let seatFiles = [];
+  if (await fs.pathExists(seatsDir)) {
+    seatFiles = (await fs.readdir(seatsDir)).filter((f) => f.endsWith('.txt') || f.endsWith('.md'));
+  }
+
+  console.log(
+    `[Chunker] Found ${rootFiles.length} root docs and ${seatFiles.length} seat logs in ${resolvedDir}`
+  );
+
   const allChunks = [];
-  for (const f of files) {
+  for (const f of rootFiles) {
     const filePath = path.join(resolvedDir, f);
+    const chunks = await chunkFile(filePath);
+    allChunks.push(...chunks);
+  }
+
+  for (const f of seatFiles) {
+    const filePath = path.join(seatsDir, f);
     const chunks = await chunkFile(filePath);
     allChunks.push(...chunks);
   }

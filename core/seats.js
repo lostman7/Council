@@ -4,7 +4,13 @@
 
 import fs from 'fs-extra';
 import path from 'path';
-import { callModel, listOllamaModels, callOllamaJson, getActiveBackend } from './dispatcher.js';
+import {
+  callModel,
+  listOllamaModels,
+  callOllamaJson,
+  getActiveBackend,
+  unloadModel
+} from './dispatcher.js';
 import { trace, traceLog } from './trace.js';
 import { loadPersona } from './personas.js';
 import { loadSeatRegistry, saveSeatPreferences, DEFAULT_MODELS } from './seatRegistry.js';
@@ -18,6 +24,8 @@ import {
 
 const FALLBACK_MODEL = 'llama3.2:3b';
 const SEAT_CACHE_PATH = path.join(process.cwd(), 'memory', 'seatCache.json');
+let lastKnownPool = [];
+const DEFAULT_SEAT_ORDER = Object.keys(DEFAULT_MODELS).filter((name) => name !== 'Throne');
 
 async function loadSeatCache() {
   try {
@@ -30,6 +38,15 @@ async function loadSeatCache() {
 async function saveSeatCache(cache) {
   await fs.ensureDir(path.dirname(SEAT_CACHE_PATH));
   await fs.writeJson(SEAT_CACHE_PATH, cache, { spaces: 2 });
+}
+
+export function updateModelPool(models = []) {
+  lastKnownPool = Array.from(
+    new Set(
+      (Array.isArray(models) ? models : [])
+        .filter((entry) => typeof entry === 'string' && entry.trim())
+    )
+  );
 }
 
 async function updateSeatCacheEntry(seatName, payload) {
@@ -190,9 +207,14 @@ function snapshotConfigs() {
 }
 
 export function getSeats({ includeDisabled = false } = {}) {
-  return Object.entries(seatConfigs)
-    .filter(([, cfg]) => includeDisabled || cfg.enabled !== false)
-    .map(([name]) => name);
+  const order = Array.from(
+    new Set([...DEFAULT_SEAT_ORDER, ...Object.keys(seatConfigs).filter((name) => name !== 'Throne')])
+  );
+  return order.filter((name) => {
+    const cfg = seatConfigs[name];
+    if (!cfg) return false;
+    return includeDisabled || cfg.enabled !== false;
+  });
 }
 
 export function getSeatConfig(name) {
@@ -219,17 +241,29 @@ export function getAllowedModels(role) {
   }
   if (role === THINKER_ROLE) {
     const embeddings = sanitisePool(getEmbeddingPool());
+    if (lastKnownPool.length) {
+      const filtered = embeddings.filter((model) => lastKnownPool.includes(model));
+      if (filtered.length) {
+        return filtered;
+      }
+    }
     return embeddings.length ? embeddings : getEmbeddingPool();
   }
 
   const allowed = sanitisePool(MODEL_RUNTIME.allowed);
-  if (allowed.length) {
-    return allowed;
+  const filteredAllowed = lastKnownPool.length
+    ? allowed.filter((model) => lastKnownPool.includes(model))
+    : allowed;
+  if (filteredAllowed.length) {
+    return filteredAllowed;
   }
 
   const embeddings = sanitisePool(getEmbeddingPool());
-  if (embeddings.length) {
-    return embeddings;
+  const filteredEmbeddings = lastKnownPool.length
+    ? embeddings.filter((model) => lastKnownPool.includes(model))
+    : embeddings;
+  if (filteredEmbeddings.length) {
+    return filteredEmbeddings;
   }
 
   return [FALLBACK_MODEL];
@@ -323,6 +357,10 @@ export function setSeatEnabled(name, enabled) {
 export async function unloadSeat(name) {
   trace('Seat', 'unload', { seat: name });
   if (!seatConfigs[name]) return;
+  const last = seatConfigs[name].lastModel;
+  if (last) {
+    await unloadModel(last);
+  }
   delete seatConfigs[name].lastModel;
 }
 
@@ -516,8 +554,10 @@ export async function spawnSeat(
     const message = err?.message || String(err);
     trace('Seat', 'model.direct.error', { role, model: selectedModel, err: message });
     const fallback = await callModel({ model: selectedModel, messages: chat });
+    const usedModel = fallback?.model || selectedModel;
+    await unloadModel(usedModel);
     await updateSeatCacheEntry(role, {
-      model: fallback?.model || selectedModel,
+      model: usedModel,
       backend: backend.name,
       lastPrompt: chat[chat.length - 1]?.content || prompt || ''
     });
@@ -532,6 +572,7 @@ export async function spawnSeat(
     '';
 
   trace('Seat', 'reply', { role, bytes: textContent.length });
+  await unloadModel(selectedModel);
   await updateSeatCacheEntry(role, {
     model: selectedModel,
     backend: backend.name,

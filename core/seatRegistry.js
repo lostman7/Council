@@ -4,6 +4,7 @@ import path from 'path';
 
 const PERSONA_DIR = path.join(process.cwd(), 'personas');
 const CONFIG_PATH = path.join(os.homedir(), '.council_config.json');
+const DEFAULT_DISABLED = new Set(['Artist', 'Doctor', 'Surgeon', 'Historian']);
 export const DEFAULT_MODELS = {
   Physicist: 'deepseek-r1:1.5b',
   Engineer: 'qwen2.5-coder:1.5b',
@@ -33,13 +34,26 @@ async function readConfigFile() {
     return raw || {};
   } catch (err) {
     console.warn('[Council Registry] Failed to read config, using defaults:', err.message);
+    if (err?.name === 'SyntaxError' || /Unexpected token|non-whitespace/i.test(err?.message || '')) {
+      try {
+        const backup = `${CONFIG_PATH}.${Date.now()}.invalid`;
+        await fs.move(CONFIG_PATH, backup, { overwrite: true });
+        console.warn('[Council Registry] Corrupt config moved to', backup);
+      } catch (moveErr) {
+        console.warn('[Council Registry] Unable to move corrupt config:', moveErr?.message || moveErr);
+      }
+    }
     return {};
   }
 }
 
 async function writeConfigFile(nextConfig) {
   try {
-    await fs.outputJson(CONFIG_PATH, nextConfig, { spaces: 2 });
+    const dir = path.dirname(CONFIG_PATH);
+    await fs.ensureDir(dir);
+    const tmp = path.join(dir, `.${path.basename(CONFIG_PATH)}.tmp`);
+    await fs.writeJson(tmp, nextConfig, { spaces: 2 });
+    await fs.move(tmp, CONFIG_PATH, { overwrite: true });
   } catch (err) {
     console.error('[Council Registry] Failed to write config:', err);
   }
@@ -64,10 +78,12 @@ export async function loadSeatRegistry() {
       const saved = savedSeats[role] || {};
       const defaultModel = DEFAULT_MODELS[role] || null;
       const manualModel = typeof saved.model === 'string' && saved.model.trim() ? saved.model.trim() : null;
+      const defaultEnabled = DEFAULT_DISABLED.has(role) ? false : true;
+      const enabled = saved.enabled !== undefined ? Boolean(saved.enabled) : defaultEnabled;
       registry[role] = {
         model: manualModel,
         defaultModel,
-        enabled: saved.enabled !== undefined ? Boolean(saved.enabled) : true,
+        enabled,
         variants
       };
     } catch (err) {
