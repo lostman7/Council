@@ -12,6 +12,7 @@ const OLLAMA_BASE_URL = 'http://localhost:11434';
 const EMBEDDING_ENDPOINTS = ['/api/embed', '/api/embeddings'];
 
 const MEMORY_DIR = path.join(process.cwd(), 'memory');
+const CHUNK_DIR = path.join(MEMORY_DIR, 'chunked');
 export const VECTOR_CACHE_PATH = path.join(MEMORY_DIR, 'vectorCache.json');
 export const DEFAULT_EMBED_MODEL = 'qwen3-embedding:0.6b';
 export const FALLBACK_EMBED_MODEL = 'mxbai-embed-large:latest';
@@ -445,4 +446,97 @@ export async function ensureVectorOpsReady() {
   await repairVectorCache();
   await loadVectorConfig();
   await initVectorOps();
+}
+
+function buildChunkFileKey(fileName) {
+  return `chunk:${fileName}`;
+}
+
+async function listChunkFiles() {
+  try {
+    await fs.ensureDir(CHUNK_DIR);
+    return (await fs.readdir(CHUNK_DIR)).filter((file) => file.endsWith('.txt'));
+  } catch (err) {
+    traceLog(`[VectorOps] Unable to read chunk directory: ${err.message}`);
+    return [];
+  }
+}
+
+export async function rebuildVectorCache() {
+  await ensureVectorOpsReady();
+
+  const chunkFiles = await listChunkFiles();
+  if (!chunkFiles.length) {
+    traceLog('[VectorOps] No chunk files detected; skipping cache rebuild');
+    return { processed: 0, skipped: 0 };
+  }
+
+  const { data } = await loadCacheInternal();
+  const existingChunkFiles = new Set(
+    Array.isArray(data?.vectors)
+      ? data.vectors
+          .filter((entry) => entry?.source?.type === 'chunk' && entry.source?.file)
+          .map((entry) => entry.source.file)
+      : []
+  );
+
+  let processed = 0;
+  let skipped = 0;
+  let index = 0;
+
+  for (const file of chunkFiles) {
+    if (existingChunkFiles.has(file)) {
+      skipped += 1;
+      continue;
+    }
+
+    const fullPath = path.join(CHUNK_DIR, file);
+    let contents;
+    try {
+      contents = await fs.readFile(fullPath, 'utf8');
+    } catch (err) {
+      traceLog(`[VectorOps][Fail] Unable to read chunk ${file}: ${err.message}`);
+      skipped += 1;
+      continue;
+    }
+
+    const trimmed = contents.trim();
+    if (!trimmed) {
+      skipped += 1;
+      continue;
+    }
+
+    const modelIndex = index % EMBEDDING_ALLOWLIST.length;
+    const targetModel = EMBEDDING_ALLOWLIST[modelIndex] || activeEmbeddingModel;
+
+    try {
+      const vector = await embedText(trimmed, targetModel);
+      data.vectors.push({
+        id: Date.now() + processed,
+        text: trimmed,
+        model: targetModel,
+        t: new Date().toISOString(),
+        hash: Buffer.from(buildChunkFileKey(file)).toString('base64').slice(0, 24),
+        vector,
+        source: { type: 'chunk', file }
+      });
+      cacheDirty = true;
+      processed += 1;
+      index += 1;
+
+      if (processed % 100 === 0) {
+        await writeVectorCache();
+        traceLog(`[VectorOps] Embedded ${processed} chunk files so far`);
+      }
+    } catch (err) {
+      traceLog(`[VectorOps][Fail] ${file}: ${err.message}`);
+      skipped += 1;
+    }
+  }
+
+  await writeVectorCache();
+  traceLog(
+    `[VectorOps] Rebuild complete — processed ${processed}, skipped ${skipped}, total ${chunkFiles.length}`
+  );
+  return { processed, skipped, total: chunkFiles.length };
 }
