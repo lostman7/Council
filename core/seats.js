@@ -221,6 +221,20 @@ export function getSeatConfig(name) {
   return seatConfigs[name];
 }
 
+export function getSeatExecutionPlan() {
+  const order = getSeats().filter((name) => name !== 'Throne');
+  return order.map((name, index) => {
+    const cfg = seatConfigs[name] || {};
+    return {
+      order: index + 1,
+      seat: name,
+      enabled: cfg.enabled !== false,
+      model: resolveDisplayModel(name, cfg),
+      allowedModels: getAllowedModels(name)
+    };
+  });
+}
+
 export function getAllSeatConfigs() {
   const result = {};
   for (const [name, cfg] of Object.entries(seatConfigs)) {

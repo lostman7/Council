@@ -48,3 +48,14 @@ Snippet
 Use your own wording for the summary entries, but always include at least three bullet points and a small log snippet that proves the behavior.
 
 Place Flowfield knowledge files (`.txt`, `.md`, `.pdf`) in `flowfield_docs/` before launch to include them in the vector cache.
+
+
+## Diagnostics
+
+Run a quick health report before starting Electron:
+
+```bash
+npm run doctor
+```
+
+This prints the current seat execution plan, disabled seats, Thinker embedding lock, and detected Ollama pool count.

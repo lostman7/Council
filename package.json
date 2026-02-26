@@ -1,11 +1,12 @@
 {
   "name": "council",
   "version": "0.2.0",
-  "description": "Council Update 0.2.0 — Expanded Seats & Exporter",
+  "description": "Council Update 0.2.0 \u2014 Expanded Seats & Exporter",
   "main": "main.js",
   "type": "module",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "doctor": "node ./core/doctor.js"
   },
   "dependencies": {
     "fs-extra": "^11.2.0",

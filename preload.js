@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('CouncilAPI', {
 
   // Options drawer
   getSeats: () => ipcRenderer.send('get-seats'),
+  describeCouncil: () => ipcRenderer.send('describe-council'),
   updateSeat: (name, model) => ipcRenderer.send('update-seat', { name, model }),
   setSeatEnabled: (name, enabled) => ipcRenderer.send('set-seat-enabled', { name, enabled }),
   getSafeMode: () => ipcRenderer.send('get-safe-mode'),

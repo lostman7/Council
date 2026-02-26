@@ -125,7 +125,17 @@ window.CouncilAPI.on('seat-change', (role) => {
   }
 });
 
+
+window.CouncilAPI.on('council-description', (summary) => {
+  if (!summary) return;
+  const plan = Array.isArray(summary.seatPlan) ? summary.seatPlan : [];
+  const chain = plan.length
+    ? plan.map((step) => `${step.order}) ${step.seat} [${step.model || 'auto'}]`).join(' -> ')
+    : 'No enabled seats';
+  logMessage(`Council plan (${summary.poolCount || 0} models in pool, safeMode=${summary.safeMode ? 'on' : 'off'}): ${chain}`);
+});
 // request seats on load so Options can render
 window.addEventListener('DOMContentLoaded', () => {
   logMessage('Initializing seat controls...');
+  window.CouncilAPI.describeCouncil?.();
 });

@@ -198,6 +198,26 @@ ipcMain.on('seed', async (_evt, text) => {
   }
 });
 
+
+ipcMain.on('describe-council', async (event) => {
+  try {
+    const pool = await refreshPool();
+    seats.updateModelPool(pool);
+    event.sender.send('council-description', {
+      safeMode: getSafeMode(),
+      poolCount: pool.length,
+      seatPlan: seats.getSeatExecutionPlan()
+    });
+  } catch (err) {
+    console.error('describe-council error:', err);
+    event.sender.send('council-description', {
+      safeMode: getSafeMode(),
+      poolCount: 0,
+      seatPlan: seats.getSeatExecutionPlan()
+    });
+  }
+});
+
 ipcMain.on('get-seats', async (evt) => {
   try {
     const pool = await refreshPool();
