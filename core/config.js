@@ -41,10 +41,39 @@ async function handleCorruptConfig(err) {
   }
 }
 
+function parseConfigText(raw) {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const slice = raw.slice(start, end + 1);
+      try {
+        return JSON.parse(slice);
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
 export async function getConfig() {
   try {
-    const data = await fs.readJson(CONF_PATH);
-    return { ...DEFAULTS, ...(data || {}) };
+    const raw = await fs.readFile(CONF_PATH, 'utf8');
+    const parsed = parseConfigText(raw);
+    if (parsed && typeof parsed === 'object') {
+      if (raw.trim() !== JSON.stringify(parsed, null, 2)) {
+        await writeConfigAtomic(CONF_PATH, { ...DEFAULTS, ...parsed });
+      }
+      return { ...DEFAULTS, ...parsed };
+    }
+    throw new SyntaxError('Invalid JSON configuration content');
   } catch (err) {
     if (err?.code === 'ENOENT') {
       return { ...DEFAULTS };

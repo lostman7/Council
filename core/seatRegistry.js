@@ -24,14 +24,36 @@ export const DEFAULT_MODELS = {
   Throne: 'cogito:3b'
 };
 
+function parseConfigText(raw) {
+  if (typeof raw !== 'string') return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(raw.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 async function readConfigFile() {
   try {
     const exists = await fs.pathExists(CONFIG_PATH);
     if (!exists) {
       return {};
     }
-    const raw = await fs.readJson(CONFIG_PATH);
-    return raw || {};
+    const raw = await fs.readFile(CONFIG_PATH, 'utf8');
+    const parsed = parseConfigText(raw);
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+    throw new SyntaxError('Invalid JSON configuration content');
   } catch (err) {
     console.warn('[Council Registry] Failed to read config, using defaults:', err.message);
     if (err?.name === 'SyntaxError' || /Unexpected token|non-whitespace/i.test(err?.message || '')) {

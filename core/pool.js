@@ -1,4 +1,5 @@
 let pool = [];
+let lastSignature = '';
 let lastRefresh = 0;
 const REFRESH_INTERVAL_MS = 30 * 1000;
 
@@ -17,7 +18,11 @@ export async function refreshPool(force = false) {
     const data = await res.json();
     pool = Array.isArray(data.models) ? data.models.map((m) => m.name).filter(Boolean) : [];
     lastRefresh = now;
-    console.log('Ollama pool:', pool);
+    const signature = pool.join(',');
+    if (signature !== lastSignature) {
+      lastSignature = signature;
+      console.log('Ollama pool:', pool);
+    }
   } catch (err) {
     console.error('Pool refresh error:', err);
     pool = [];

@@ -8,7 +8,7 @@ import {
   getSeats,
   MODEL_RUNTIME
 } from './seats.js';
-import { loadBubble, saveBubble, mergeBubble } from '../memory/bubbles.js';
+import { loadBubble, saveBubble, mergeBubble, initializeSeatBubbles } from '../memory/bubbles.js';
 import { initRamdisk } from './ramdisk.js';
 import { chunkAllDocs } from './chunker.js';
 import { searchDocs } from '../memory/vectorCache.js';
@@ -48,6 +48,7 @@ export async function initThrone(win) {
   await initializeSeatRegistry();
   await initRamdisk();
   await chunkAllDocs();
+  initializeSeatBubbles(uniqueRoster());
   await initHarmony();
   syncThroneLog();
   activeSeat = 'Idle';

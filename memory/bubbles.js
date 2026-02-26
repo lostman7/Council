@@ -68,3 +68,10 @@ export function mergeBubble(role, entries, limit) {
   enforceSeatLimit(ramFile);
   fs.appendFileSync(flowfieldFile, normalized.join('\n') + '\n');
 }
+
+export function initializeSeatBubbles(roles = []) {
+  const uniqueRoles = Array.from(new Set((Array.isArray(roles) ? roles : []).filter(Boolean)));
+  for (const role of uniqueRoles) {
+    ensureSeatFiles(role);
+  }
+}
