@@ -43,32 +43,32 @@ async function handleCorruptConfig(err) {
 
 function parseConfigText(raw) {
   if (typeof raw !== 'string') {
-    return null;
+    return { value: null, recovered: false };
   }
 
   try {
-    return JSON.parse(raw);
+    return { value: JSON.parse(raw), recovered: false };
   } catch {
     const start = raw.indexOf('{');
     const end = raw.lastIndexOf('}');
     if (start >= 0 && end > start) {
       const slice = raw.slice(start, end + 1);
       try {
-        return JSON.parse(slice);
+        return { value: JSON.parse(slice), recovered: true };
       } catch {
-        return null;
+        return { value: null, recovered: false };
       }
     }
   }
-  return null;
+  return { value: null, recovered: false };
 }
 
 export async function getConfig() {
   try {
     const raw = await fs.readFile(CONF_PATH, 'utf8');
-    const parsed = parseConfigText(raw);
+    const { value: parsed, recovered } = parseConfigText(raw);
     if (parsed && typeof parsed === 'object') {
-      if (raw.trim() !== JSON.stringify(parsed, null, 2)) {
+      if (recovered) {
         await writeConfigAtomic(CONF_PATH, { ...DEFAULTS, ...parsed });
       }
       return { ...DEFAULTS, ...parsed };

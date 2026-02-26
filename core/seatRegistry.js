@@ -25,20 +25,20 @@ export const DEFAULT_MODELS = {
 };
 
 function parseConfigText(raw) {
-  if (typeof raw !== 'string') return null;
+  if (typeof raw !== 'string') return { value: null, recovered: false };
   try {
-    return JSON.parse(raw);
+    return { value: JSON.parse(raw), recovered: false };
   } catch {
     const start = raw.indexOf('{');
     const end = raw.lastIndexOf('}');
     if (start >= 0 && end > start) {
       try {
-        return JSON.parse(raw.slice(start, end + 1));
+        return { value: JSON.parse(raw.slice(start, end + 1)), recovered: true };
       } catch {
-        return null;
+        return { value: null, recovered: false };
       }
     }
-    return null;
+    return { value: null, recovered: false };
   }
 }
 
@@ -49,8 +49,11 @@ async function readConfigFile() {
       return {};
     }
     const raw = await fs.readFile(CONFIG_PATH, 'utf8');
-    const parsed = parseConfigText(raw);
+    const { value: parsed, recovered } = parseConfigText(raw);
     if (parsed && typeof parsed === 'object') {
+      if (recovered) {
+        await writeConfigFile(parsed);
+      }
       return parsed;
     }
     throw new SyntaxError('Invalid JSON configuration content');
